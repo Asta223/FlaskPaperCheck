@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>查重历史</h2>
+
+<div class="row mb-3">
+    <div class="col-md-6">
+        <form method="GET" class="d-flex">
+            <input type="text" name="search" class="form-control me-2" placeholder="按论文标题搜索" value="{{ search }}">
+            <button type="submit" class="btn btn-outline-primary">搜索</button>
+        </form>
+    </div>
+    <div class="col-md-6 text-end">
+        <p>总查重次数：{{ total_count }} | 平均相似度：{{ avg_similarity }}%</p>
+    </div>
+</div>
+
+<table class="table table-hover">
+    <thead>
+        <tr>
+            <th>ID</th>
+            <th>论文标题</th>
+            <th>查重时间</th>
+            <th>相似度</th>
+            <th>操作</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for record in records.items %}
+        <tr>
+            <td>{{ record.id }}</td>
+            <td>{{ record.paper.title }}</td>
+            <td>{{ record.check_time.strftime('%Y-%m-%d %H:%M') }}</td>
+            <td>{{ "%.2f"|format(record.similarity_score * 100) }}%</td>
+            <td><a href="{{ url_for('paper.result', record_id=record.id) }}" class="btn btn-sm btn-info">查看报告</a></td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<!-- 分页 -->
+<nav>
+    <ul class="pagination">
+        {% if records.has_prev %}
+            <li class="page-item"><a class="page-link" href="{{ url_for('history.history', page=records.prev_num, search=search) }}">上一页</a></li>
+        {% endif %}
+        {% for page_num in records.iter_pages() %}
+            {% if page_num %}
+                <li class="page-item {% if page_num == records.page %}active{% endif %}">
+                    <a class="page-link" href="{{ url_for('history.history', page=page_num, search=search) }}">{{ page_num }}</a>
+                </li>
+            {% else %}
+                <li class="page-item disabled"><span class="page-link">...</span></li>
+            {% endif %}
+        {% endfor %}
+        {% if records.has_next %}
+            <li class="page-item"><a class="page-link" href="{{ url_for('history.history', page=records.next_num, search=search) }}">下一页</a></li>
+        {% endif %}
+    </ul>
+</nav>
+{% endblock %}

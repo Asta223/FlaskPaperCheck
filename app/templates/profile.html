@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>个人资料</h2>
+<p>用户名：{{ user.username }}</p>
+<p>邮箱：{{ user.email }}</p>
+<p>角色：{{ user.role }}</p>
+<p>注册时间：{{ user.created_at.strftime('%Y-%m-%d %H:%M') }}</p>
+{% endblock %}

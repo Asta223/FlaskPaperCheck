@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>上传论文</h2>
+<form method="POST" enctype="multipart/form-data">
+    {{ form.hidden_tag() }}
+    <div class="mb-3">
+        {{ form.title.label(class="form-label") }}
+        {{ form.title(class="form-control") }}
+    </div>
+    <div class="mb-3">
+        {{ form.file.label(class="form-label") }}
+        {{ form.file(class="form-control") }}
+    </div>
+    <div class="mb-3">
+        <label class="form-label">查重算法</label>
+        <select class="form-select" name="algorithm" id="algorithm">
+            <optgroup label="传统统计方法">
+                <option value="tfidf" {% if form.algorithm.data == 'tfidf' %}selected{% endif %}>TF-IDF (基于词频统计)</option>
+            </optgroup>
+            <optgroup label="神经网络方法">
+                <option value="bert" {% if form.algorithm.data == 'bert' %}selected{% endif %}>Sentence-BERT (文档级)</option>
+                <option value="sentence_bert" {% if form.algorithm.data == 'sentence_bert' %}selected{% endif %}>Sentence-BERT (句子级)</option>
+                <option value="doc2vec" {% if form.algorithm.data == 'doc2vec' %}selected{% endif %}>Doc2Vec (自定义训练模型)</option>
+            </optgroup>
+        </select>
+        <div class="form-text mt-2">
+            <i class="bi bi-info-circle"></i>
+            <strong>TF-IDF</strong> 基于词频统计，速度快；<strong>Sentence-BERT</strong> 捕捉语义相似度；<strong>Doc2Vec</strong> 使用本地训练模型，需提前训练。
+        </div>
+    </div>
+    <div class="mb-3">
+        {{ form.threshold.label(class="form-label") }}
+        {{ form.threshold(class="form-control", step="0.01") }}
+        <div class="form-text">相似度阈值，高于此值的论文才会在结果中列出。</div>
+    </div>
+    <div class="mb-3 form-check">
+        {{ form.compare_self(class="form-check-input") }}
+        {{ form.compare_self.label(class="form-check-label") }}
+        <div class="form-text">勾选后将同时与您之前上传的论文进行比对（可能产生较高相似度）</div>
+    </div>
+    <button type="submit" class="btn btn-primary">上传并查重</button>
+</form>
+
+<!-- 初始化 Bootstrap tooltip（如有需要） -->
+<script>
+    var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'))
+    var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
+        return new bootstrap.Tooltip(tooltipTriggerEl)
+    })
+</script>
+{% endblock %}

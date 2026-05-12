@@ -1,0 +1,19 @@
+Flask>=2.2.5
+Flask-SQLAlchemy==3.0.5
+Flask-Login>=0.6.3
+Flask-WTF==1.1.1
+Flask-Migrate==4.0.4
+PyMySQL==1.0.2
+email-validator==2.1.0
+jieba==0.42.1
+PyPDF2==3.0.1
+python-docx==0.8.11
+scikit-learn==1.2.2
+numpy==1.24.3
+sentence-transformers==2.2.2
+torch==2.0.1
+gensim==4.3.2
+requests==2.31.0
+beautifulsoup4==4.12.2
+pdfkit==1.0.0
+# nltk==3.8.1   # 如果需要 NLTK，取消注释
