@@ -61,16 +61,16 @@ def upload():
         file_hash = compute_hash(filepath)
 
         # ========== 4. 检查是否已存在相同哈希的论文 ==========
-        existing_paper = Paper.query.filter_by(file_hash=file_hash).first()
-        if existing_paper:
-            os.remove(filepath)  # 删除刚上传的临时文件
-            flash('该论文已存在，请勿重复上传！', 'warning')
-            # 如果已有查重记录，直接跳转到结果页
-            existing_record = CheckRecord.query.filter_by(paper_id=existing_paper.id).first()
-            if existing_record:
-                return redirect(url_for('paper.result', record_id=existing_record.id))
-            else:
-                return redirect(url_for('paper.upload'))
+        # existing_paper = Paper.query.filter_by(file_hash=file_hash).first()
+        # if existing_paper:
+        #     os.remove(filepath)  # 删除刚上传的临时文件
+        #     flash('该论文已存在，请勿重复上传！', 'warning')
+        #     # 如果已有查重记录，直接跳转到结果页
+        #     existing_record = CheckRecord.query.filter_by(paper_id=existing_paper.id).first()
+        #     if existing_record:
+        #         return redirect(url_for('paper.result', record_id=existing_record.id))
+        #     else:
+        #         return redirect(url_for('paper.upload'))
 
         # ========== 5. 解析文件内容 ==========
         try:

@@ -27,7 +27,7 @@ class Paper(db.Model):
     upload_time = db.Column(db.DateTime, default=datetime.utcnow)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'))
     checks = db.relationship('CheckRecord', backref='paper', lazy='dynamic')
-    file_hash = db.Column(db.String(64), unique=True, nullable=True, index=True)
+    file_hash = db.Column(db.String(64), nullable=True, index=True)
 
 class CheckRecord(db.Model):
     __tablename__ = 'check_records'
