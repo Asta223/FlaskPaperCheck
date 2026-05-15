@@ -2,6 +2,11 @@ import os
 from PyPDF2 import PdfReader
 from docx import Document
 
+import zipfile
+import os
+from docx import Document
+from docx.opc.exceptions import PackageNotFoundError
+
 def extract_text_from_pdf(filepath):
     reader = PdfReader(filepath)
     text = ''

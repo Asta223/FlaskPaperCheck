@@ -1,8 +1,9 @@
 from flask_wtf import FlaskForm
-from flask_wtf.file import FileField, FileAllowed, FileRequired
-from wtforms import StringField, PasswordField, SubmitField, SelectField, FloatField
+from flask_wtf.file import FileField, FileRequired
+from wtforms import StringField, PasswordField, SubmitField, SelectField, FloatField, ValidationError
 from wtforms.validators import DataRequired, Email, EqualTo, Length
 from wtforms import BooleanField
+import os
 
 class LoginForm(FlaskForm):
     username = StringField('用户名', validators=[DataRequired()])
@@ -18,10 +19,7 @@ class RegistrationForm(FlaskForm):
 
 class UploadForm(FlaskForm):
     title = StringField('论文标题', validators=[DataRequired()])
-    file = FileField('选择文件', validators=[
-        FileRequired(),
-        FileAllowed(['pdf', 'doc', 'docx', 'txt'], '仅支持 PDF、Word、TXT 格式！')
-    ])
+    file = FileField('选择文件', validators=[FileRequired()])
     algorithm = SelectField('查重算法', choices=[
         ('tfidf', 'TF-IDF (基于词频)'),
         ('bert', 'Sentence-BERT (文档级)'),
@@ -32,3 +30,12 @@ class UploadForm(FlaskForm):
     threshold = FloatField('相似度阈值', default=0.5, validators=[DataRequired()])
     submit = SubmitField('上传并查重')
     compare_self = BooleanField('与自己的历史论文比对', default=False)
+
+    def validate_file(self, field):
+        if not field.data:
+            raise ValidationError('未选择文件')
+        filename = field.data.filename
+        print(f"原始文件名: {repr(filename)}")  # 这行会打印到 PyCharm 控制台
+        ext = os.path.splitext(filename)[1].lower()
+        if ext not in ['.pdf', '.doc', '.docx', '.txt']:
+            raise ValidationError(f'不支持的文件格式（检测到扩展名: {ext}）')
