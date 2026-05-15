@@ -16,6 +16,7 @@
         <select class="form-select" name="algorithm" id="algorithm">
             <optgroup label="传统统计方法">
                 <option value="tfidf" {% if form.algorithm.data == 'tfidf' %}selected{% endif %}>TF-IDF (基于词频统计)</option>
+                <option value="jaccard" {% if form.algorithm.data == 'jaccard' %}selected{% endif %}>Jaccard 相似度 (基于词集)</option>
             </optgroup>
             <optgroup label="神经网络方法">
                 <option value="bert" {% if form.algorithm.data == 'bert' %}selected{% endif %}>Sentence-BERT (文档级)</option>
@@ -25,7 +26,7 @@
         </select>
         <div class="form-text mt-2">
             <i class="bi bi-info-circle"></i>
-            <strong>TF-IDF</strong> 基于词频统计，速度快；<strong>Sentence-BERT</strong> 捕捉语义相似度；<strong>Doc2Vec</strong> 使用本地训练模型，需提前训练。
+            <strong>TF-IDF</strong> 基于词频统计，速度快；<strong>Jaccard</strong> 基于词集重叠度；<strong>Sentence-BERT</strong> 捕捉语义相似度；<strong>Doc2Vec</strong> 使用本地训练模型，需提前训练。
         </div>
     </div>
     <div class="mb-3">
