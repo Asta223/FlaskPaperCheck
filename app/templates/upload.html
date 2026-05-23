@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
-<h2>上传论文</h2>
+<h2>上传课程报告</h2>
 <form method="POST" enctype="multipart/form-data">
     {{ form.hidden_tag() }}
     <div class="mb-3">
@@ -32,12 +32,12 @@
     <div class="mb-3">
         {{ form.threshold.label(class="form-label") }}
         {{ form.threshold(class="form-control", step="0.01") }}
-        <div class="form-text">相似度阈值，高于此值的论文才会在结果中列出。</div>
+        <div class="form-text">相似度阈值，高于此值的课程报告才会在结果中列出。</div>
     </div>
     <div class="mb-3 form-check">
         {{ form.compare_self(class="form-check-input") }}
         {{ form.compare_self.label(class="form-check-label") }}
-        <div class="form-text">勾选后将同时与您之前上传的论文进行比对（可能产生较高相似度）</div>
+        <div class="form-text">勾选后将同时与您之前上传的课程报告进行比对（可能产生较高相似度）</div>
     </div>
     <button type="submit" class="btn btn-primary">上传并查重</button>
 </form>
