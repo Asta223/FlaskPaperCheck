@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% from "_macros.html" import page_header %}
+{% block title %}角色权限 - 工厂管理系统{% endblock %}
+{% block content %}
+{% call page_header('角色权限') %}
+    <a class="btn btn-primary" href="{{ url_for('rbac.role_new') }}"><i class="bi bi-plus-lg"></i> 新建角色</a>
+{% endcall %}
+<div class="card shadow-sm">
+    <div class="card-body p-0">
+        <table class="table table-hover mb-0 align-middle">
+            <thead class="table-light">
+            <tr><th>#</th><th>编码</th><th>名称</th><th>类型</th><th>权限点数</th><th>用户数</th><th>备注</th><th class="text-end">操作</th></tr>
+            </thead>
+            <tbody>
+            {% for role in roles %}
+                <tr>
+                    <td>{{ role.id }}</td>
+                    <td><code>{{ role.code }}</code></td>
+                    <td>{{ role.name }}</td>
+                    <td>{% if role.is_builtin %}<span class="badge bg-info">内置</span>{% else %}<span class="badge bg-light text-dark">自定义</span>{% endif %}</td>
+                    <td>{{ role.permissions | length }}</td>
+                    <td>{{ role.users | length }}</td>
+                    <td class="text-muted">{{ role.remark or '-' }}</td>
+                    <td class="text-end">
+                        <a class="btn btn-sm btn-outline-primary" href="{{ url_for('rbac.role_edit', role_id=role.id) }}">编辑</a>
+                    </td>
+                </tr>
+            {% else %}
+                <tr><td colspan="8" class="text-center text-muted py-4">暂无角色</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

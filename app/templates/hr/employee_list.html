@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% from "_macros.html" import render_pagination, page_header %}
+{% block title %}人员管理 - 工厂管理系统{% endblock %}
+{% block content %}
+{% call page_header('人员管理') %}
+    {% if 'hr.manage' in current_user|perm_codes %}
+        <a class="btn btn-primary" href="{{ url_for('hr.employee_new') }}"><i class="bi bi-person-plus"></i> 新建员工</a>
+    {% endif %}
+{% endcall %}
+<div class="row">
+    <!-- 左：部门树筛选 -->
+    <div class="col-md-3">
+        <div class="card shadow-sm">
+            <div class="card-header bg-white"><i class="bi bi-diagram-2"></i> 部门</div>
+            <div class="card-body py-2">
+                <a class="d-block py-1 {% if not dept_id %}fw-bold text-primary{% endif %}"
+                   href="{{ url_for('hr.employee_list', keyword=keyword) }}">全部员工</a>
+                {% macro render_tree(nodes) %}
+                    <ul class="list-unstyled ms-2 mb-0">
+                        {% for node in nodes %}
+                            <li>
+                                <a class="d-block py-1 {% if dept_id == node.dept.id %}fw-bold text-primary{% endif %}"
+                                   href="{{ url_for('hr.employee_list', dept_id=node.dept.id, keyword=keyword) }}">
+                                    {{ node.dept.name }} <span class="text-muted small">({{ node.dept.employees | length }})</span>
+                                </a>
+                                {% if node.children %}{{ render_tree(node.children) }}{% endif %}
+                            </li>
+                        {% endfor %}
+                    </ul>
+                {% endmacro %}
+                {{ render_tree(tree) }}
+            </div>
+        </div>
+    </div>
+    <!-- 右：员工表格 -->
+    <div class="col-md-9">
+        <div class="card shadow-sm">
+            <div class="card-body">
+                <form class="row g-2 mb-3" method="GET">
+                    {% if dept_id %}<input type="hidden" name="dept_id" value="{{ dept_id }}">{% endif %}
+                    <div class="col-md-5">
+                        <input class="form-control" type="text" name="keyword" value="{{ keyword }}"
+                               placeholder="姓名 / 登录名 / 工号">
+                    </div>
+                    <div class="col-auto">
+                        <button class="btn btn-outline-primary" type="submit"><i class="bi bi-search"></i> 搜索</button>
+                    </div>
+                </form>
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead class="table-light">
+                        <tr><th>工号</th><th>姓名</th><th>登录名</th><th>部门</th><th>岗位</th><th>手机</th><th>入职</th><th>状态</th><th class="text-end">操作</th></tr>
+                        </thead>
+                        <tbody>
+                        {% for user in pagination.items %}
+                            <tr>
+                                <td>{{ user.employee_no }}</td>
+                                <td>{{ user.display_name() }}</td>
+                                <td><code>{{ user.username }}</code></td>
+                                <td>{{ user.department.name if user.department else '-' }}</td>
+                                <td>{{ user.position or '-' }}</td>
+                                <td>{{ user.phone or '-' }}</td>
+                                <td>{{ user.hire_date | fmt_date }}</td>
+                                <td>
+                                    {% if user.is_active %}<span class="badge bg-success">在职</span>
+                                    {% else %}<span class="badge bg-secondary">离职/停用</span>{% endif %}
+                                </td>
+                                <td class="text-end">
+                                    {% if 'hr.manage' in current_user|perm_codes %}
+                                        <a class="btn btn-sm btn-outline-primary" href="{{ url_for('hr.employee_edit', user_id=user.id) }}">编辑</a>
+                                        <form class="d-inline" method="POST" action="{{ url_for('hr.employee_toggle', user_id=user.id) }}"
+                                              onsubmit="return confirm('确认{{ '停用（离职）' if user.is_active else '复用（恢复在职）' }}该员工？');">
+                                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                            <button class="btn btn-sm btn-outline-{{ 'danger' if user.is_active else 'success' }}" type="submit">
+                                                {{ '停用' if user.is_active else '复用' }}
+                                            </button>
+                                        </form>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                        {% else %}
+                            <tr><td colspan="9" class="text-center text-muted py-4">暂无员工</td></tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {{ render_pagination(pagination, 'hr.employee_list') }}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}物料分类 - 工厂管理系统{% endblock %}
+{% block content %}
+<h4 class="mb-3">物料分类</h4>
+<div class="row">
+    <div class="col-md-5">
+        <div class="card shadow-sm">
+            <div class="card-header bg-white"><i class="bi bi-diagram-2"></i> 分类树</div>
+            <div class="card-body py-2">
+                {% macro render_cat(cats, parent_id=None) %}
+                    <ul class="list-unstyled ms-2 mb-0">
+                        {% for c in cats if c.parent_id == parent_id %}
+                            <li class="py-1">
+                                {{ c.name }} <span class="text-muted small">({{ c.materials | length }} 物料)</span>
+                                <span class="ms-1">
+                                    <a class="small" href="{{ url_for('material.category_list', edit_id=c.id) }}">编辑</a>
+                                    <a class="small" href="{{ url_for('material.category_list', parent_id=c.id) if false else '#' }}" onclick="document.getElementById('catParent').value='{{ c.id }}';return false;">+子分类</a>
+                                    <form class="d-inline" method="POST" action="{{ url_for('material.category_delete', cat_id=c.id) }}"
+                                          onsubmit="return confirm('确认停用分类「{{ c.name }}」？');">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                        <button class="btn btn-link btn-sm text-danger p-0 small" type="submit">停用</button>
+                                    </form>
+                                </span>
+                                {{ render_cat(cats, c.id) }}
+                            </li>
+                        {% endfor %}
+                    </ul>
+                {% endmacro %}
+                {{ render_cat(cats) }}
+            </div>
+        </div>
+    </div>
+    <div class="col-md-7">
+        <div class="card shadow-sm">
+            <div class="card-header bg-white">{% if cat %}编辑分类{% else %}新增分类{% endif %}</div>
+            <div class="card-body">
+                <form method="POST" class="row g-3"
+                      action="{{ url_for('material.category_edit', cat_id=cat.id) if cat else url_for('material.category_new') }}">
+                    {{ form.hidden_tag() }}
+                    <div class="col-md-6">
+                        {{ form.name.label(class="form-label") }}
+                        {{ form.name(class="form-control") }}
+                        {% for err in form.name.errors %}<div class="text-danger small">{{ err }}</div>{% endfor %}
+                    </div>
+                    <div class="col-md-6">
+                        {{ form.parent_id.label(class="form-label") }}
+                        {{ form.parent_id(class="form-select", id="catParent") }}
+                    </div>
+                    <div class="col-12">
+                        {{ form.submit(class="btn btn-primary") }}
+                        {% if cat %}<a class="btn btn-outline-secondary" href="{{ url_for('material.category_list') }}">取消编辑</a>{% endif %}
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

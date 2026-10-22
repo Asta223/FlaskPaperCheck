@@ -1,8 +1,50 @@
 {% extends "base.html" %}
+{% block title %}个人信息 - 工厂管理系统{% endblock %}
 {% block content %}
-<h2>个人资料</h2>
-<p>用户名：{{ user.username }}</p>
-<p>邮箱：{{ user.email }}</p>
-<p>角色：{{ user.role }}</p>
-<p>注册时间：{{ user.created_at.strftime('%Y-%m-%d %H:%M') }}</p>
+<div class="row">
+    <div class="col-md-6">
+        <div class="card shadow-sm mb-3">
+            <div class="card-header bg-white"><i class="bi bi-person"></i> 个人信息</div>
+            <div class="card-body">
+                <table class="table table-borderless mb-0">
+                    <tr><th class="text-muted w-25">姓名</th><td>{{ user.display_name() }}</td></tr>
+                    <tr><th class="text-muted">登录名</th><td>{{ user.username }}</td></tr>
+                    <tr><th class="text-muted">工号</th><td>{{ user.employee_no }}</td></tr>
+                    <tr><th class="text-muted">部门</th><td>{{ user.department.name if user.department else '未分配' }}</td></tr>
+                    <tr><th class="text-muted">岗位</th><td>{{ user.position or '-' }}</td></tr>
+                    <tr><th class="text-muted">手机</th><td>{{ user.phone or '-' }}</td></tr>
+                    <tr><th class="text-muted">邮箱</th><td>{{ user.email or '-' }}</td></tr>
+                    <tr><th class="text-muted">入职日期</th><td>{{ user.hire_date | fmt_date }}</td></tr>
+                    <tr><th class="text-muted">角色</th><td>{% for r in user.roles %}<span class="badge bg-secondary me-1">{{ r.name }}</span>{% else %}-{% endfor %}</td></tr>
+                </table>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card shadow-sm">
+            <div class="card-header bg-white"><i class="bi bi-key"></i> 修改密码</div>
+            <div class="card-body">
+                <form method="POST">
+                    {{ form.hidden_tag() }}
+                    <div class="mb-3">
+                        {{ form.old_password.label(class="form-label") }}
+                        {{ form.old_password(class="form-control") }}
+                        {% for err in form.old_password.errors %}<div class="text-danger small">{{ err }}</div>{% endfor %}
+                    </div>
+                    <div class="mb-3">
+                        {{ form.new_password.label(class="form-label") }}
+                        {{ form.new_password(class="form-control") }}
+                        {% for err in form.new_password.errors %}<div class="text-danger small">{{ err }}</div>{% endfor %}
+                    </div>
+                    <div class="mb-3">
+                        {{ form.confirm_password.label(class="form-label") }}
+                        {{ form.confirm_password(class="form-control") }}
+                        {% for err in form.confirm_password.errors %}<div class="text-danger small">{{ err }}</div>{% endfor %}
+                    </div>
+                    {{ form.submit(class="btn btn-primary") }}
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}

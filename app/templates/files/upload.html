@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}上传文件 - 工厂管理系统{% endblock %}
+{% block content %}
+<h4 class="mb-3">上传文件</h4>
+<div class="card shadow-sm">
+    <div class="card-body">
+        <form method="POST" enctype="multipart/form-data" class="row g-3">
+            {{ form.hidden_tag() }}
+            <div class="col-md-4">
+                {{ form.category_id.label(class="form-label") }}
+                {{ form.category_id(class="form-select") }}
+            </div>
+            <div class="col-md-8">
+                {{ form.file.label(class="form-label") }}
+                {{ form.file(class="form-control") }}
+                {% for err in form.file.errors %}<div class="text-danger small">{{ err }}</div>{% endfor %}
+                <div class="form-text">支持 pdf/office/图片/压缩包/图纸等常见格式，单文件最大 50MB</div>
+            </div>
+            <div class="col-md-4">
+                {{ form.visibility_type.label(class="form-label") }}
+                <div>
+                    {% for subfield in form.visibility_type %}
+                        <div class="form-check form-check-inline">
+                            {{ subfield(class="form-check-input") }}
+                            {{ subfield.label(class="form-check-label") }}
+                        </div>
+                    {% endfor %}
+                </div>
+            </div>
+            <div class="col-md-8">
+                {{ form.role_ids.label(class="form-label") }}
+                {{ form.role_ids(class="form-select", size=5) }}
+                <div class="form-text">可见范围为「指定角色」时，请至少选择一个角色</div>
+                {% for err in form.role_ids.errors %}<div class="text-danger small">{{ err }}</div>{% endfor %}
+            </div>
+            <div class="col-12">
+                {{ form.submit(class="btn btn-primary") }}
+                <a class="btn btn-outline-secondary" href="{{ url_for('files.index') }}">返回</a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
