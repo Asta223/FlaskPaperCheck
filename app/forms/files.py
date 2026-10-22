@@ -3,7 +3,7 @@ from flask import current_app
 from flask_wtf import FlaskForm
 from flask_wtf.file import FileField
 from wtforms import RadioField, SelectField, SelectMultipleField, StringField, SubmitField
-from wtforms.validators import DataRequired, Length, Optional
+from wtforms.validators import DataRequired, Length, Optional, ValidationError
 
 ZERO_CHOICE = (0, '-- 无 --')
 
@@ -49,4 +49,5 @@ class FileUploadForm(FlaskForm):
         ext = os.path.splitext(filename)[1].lower()
         allowed = current_app.config.get('UPLOAD_EXTENSIONS', set())
         if not ext or ext not in allowed:
-            raise ValueError('不支持的文件类型：%s' % (ext or '无扩展名'))
+            # 抛 ValidationError（而非 ValueError）：由 WTForms 捕获进入表单错误，flash 提示并重渲染
+            raise ValidationError('不支持的文件类型：%s' % (ext or '无扩展名'))

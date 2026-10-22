@@ -3,7 +3,7 @@
 P1 数据权限（部门主管只看本部门）预留统一查询出口 base_employee_query()。
 """
 from flask import Blueprint, flash, redirect, render_template, request, url_for
-from flask_login import login_required
+from flask_login import current_user, login_required
 from sqlalchemy import or_
 
 from app import db
