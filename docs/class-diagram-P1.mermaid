@@ -1,0 +1,132 @@
+%% P1 增量模型类图（新增/修改）
+%% 完整说明见 docs/ARCHITECTURE-P1.md §3
+classDiagram
+    class LeaveRequest {
+        +int id PK
+        +int applicant_id FK>users.id
+        +int department_id FK>departments.id
+        +str leave_type
+        +datetime start_at
+        +datetime end_at
+        +float days
+        +str reason
+        +str status "pending/approved/rejected"
+        +int approver_id FK>users.id
+        +datetime approved_at
+        +str approve_comment
+        +datetime created_at
+        +"IX(department_id,status) IX(applicant_id)"
+    }
+    class AttendanceRecord {
+        +int id PK
+        +int user_id FK>users.id
+        +date work_date
+        +datetime check_in_at
+        +datetime check_out_at
+        +int late_minutes "P1新增 默认0"
+        +int early_leave_minutes "P1新增 默认0"
+        +str day_status "P1新增"
+        +"UK(user_id,work_date)"
+    }
+    class WorkOrder {
+        +int id PK
+        +str order_no UK
+        +str product_name
+        +int quantity
+        +int leader_id FK>users.id
+        +int related_department_id FK>departments.id "P1新增"
+        +str status
+        +int created_by FK>users.id
+        +datetime created_at
+    }
+    class StockLedger {
+        +int id PK
+        +str doc_no
+        +str doc_type "in/out"
+        +int warehouse_id FK>warehouses.id
+        +int material_id FK>materials.id
+        +int quantity
+        +int before_balance
+        +int after_balance
+        +int related_order_id FK>work_orders.id
+        +int handler_id FK>users.id
+        +datetime created_at
+        +"IX(material_id,created_at)"
+    }
+    class OperationLog {
+        +int id PK
+        +int operator_id FK>users.id
+        +str module
+        +str action
+        +str target_type "多态"
+        +int target_id "多态无FK"
+        +str summary
+        +str ip
+        +datetime created_at
+        +"IX(target_type,target_id,created_at)"
+    }
+    class Notification {
+        +int id PK
+        +int receiver_id FK>users.id
+        +str notif_type "stock_warning"
+        +str title
+        +str content
+        +int material_id FK>materials.id
+        +int warehouse_id FK>warehouses.id
+        +str link_url
+        +bool is_read
+        +datetime created_at
+        +"IX(receiver_id,is_read)"
+    }
+    class StockWarningState {
+        +int id PK
+        +int warehouse_id FK>warehouses.id
+        +int material_id FK>materials.id
+        +bool is_low
+        +datetime last_notified_at
+        +"UK(warehouse_id,material_id)"
+    }
+    class ConversationRead {
+        +int id PK
+        +int user_id FK>users.id
+        +int peer_id FK>users.id
+        +int last_read_message_id
+        +datetime updated_at
+        +"UK(user_id,peer_id)"
+    }
+    class file_department_visibility {
+        +int file_id PK FK>factory_files.id
+        +int department_id PK FK>departments.id
+    }
+    class FactoryFile {
+        +int id PK
+        +str visibility_type "all/roles/departments"
+    }
+    class Department {
+        +int id PK
+        +int parent_id FK
+        +int leader_id FK>users.id
+        +descendant_ids() list
+    }
+    class StockDocument {
+        +int id PK
+        +int related_order_id FK>work_orders.id "P0已预留 启用"
+    }
+    class User {
+        +int id PK
+        +int department_id FK>departments.id
+    }
+
+    User "1" --> "0..*" LeaveRequest : 申请
+    User "0..1" --> "0..*" LeaveRequest : 审批
+    Department "1" --> "0..*" LeaveRequest
+    User "1" --> "0..*" AttendanceRecord
+    Department "0..1" --> "0..*" WorkOrder : related_department_id
+    WorkOrder "1" --> "0..*" StockLedger
+    WorkOrder "1" --> "0..*" StockDocument : related_order_id
+    StockDocument "1" --> "1" StockLedger : 同事务生成
+    User "0..1" --> "0..*" OperationLog : 操作人
+    OperationLog ..> WorkOrder : target多态
+    User "0..1" --> "0..*" Notification : 接收人
+    User "1" --> "0..*" ConversationRead : 已读位点
+    FactoryFile "0..*" -- "0..*" Department : file_department_visibility
