@@ -28,7 +28,7 @@
             <div class="col-auto">
                 <button class="btn btn-primary" type="submit">查询</button>
             </div>
-            {% if can_view_all %}
+            {% if can_summary %}
                 <div class="col-md-3">
                     <select class="form-select" name="dept_id" onchange="this.form.submit()">
                         <option value="">按部门汇总…</option>
@@ -38,28 +38,36 @@
                     </select>
                 </div>
             {% endif %}
+            {% if 'system.export' in current_user|perm_codes %}
+                <div class="col-auto">
+                    <a class="btn btn-outline-secondary" href="{{ url_for('attendance.export_csv', year=year, month=month, dept_id=dept_id or 0) }}"><i class="bi bi-download"></i> 导出 CSV</a>
+                </div>
+            {% endif %}
         </form>
     </div>
 </div>
 
-{% if dept_rows is not none and can_view_all and dept_id %}
-    <!-- 主管视角：部门汇总 -->
+{% if dept_rows is not none and can_summary and dept_id %}
+    <!-- 主管视角：部门汇总（含子部门） -->
     <div class="card shadow-sm">
         <div class="card-header bg-white"><i class="bi bi-people"></i> 部门成员汇总（{{ year }} 年 {{ month }} 月）</div>
         <div class="card-body p-0">
             <table class="table table-hover mb-0 align-middle">
-                <thead class="table-light"><tr><th>工号</th><th>姓名</th><th>出勤天数</th><th>缺卡天数</th><th>备注</th></tr></thead>
+                <thead class="table-light"><tr><th>工号</th><th>姓名</th><th>出勤</th><th>迟到</th><th>早退</th><th>请假</th><th>缺卡</th><th>明细</th></tr></thead>
                 <tbody>
                 {% for row in dept_rows %}
                     <tr>
                         <td>{{ row.user.employee_no }}</td>
-                        <td><a href="{{ url_for('attendance.monthly', year=year, month=month, user_id=row.user.id) }}">{{ row.user.display_name() }}</a></td>
+                        <td>{{ row.user.display_name() }}</td>
                         <td>{{ row.stats.attend_days }}</td>
+                        <td class="{% if row.stats.late_days %}text-danger{% endif %}">{{ row.stats.late_days }}</td>
+                        <td class="{% if row.stats.early_days %}text-danger{% endif %}">{{ row.stats.early_days }}</td>
+                        <td>{{ row.stats.leave_days }}</td>
                         <td class="{% if row.stats.absent_days %}text-danger fw-bold{% endif %}">{{ row.stats.absent_days }}</td>
-                        <td class="text-muted small">P0 简化：周一~周五为工作日</td>
+                        <td><a href="{{ url_for('attendance.monthly', year=year, month=month, user_id=row.user.id) }}">查看</a></td>
                     </tr>
                 {% else %}
-                    <tr><td colspan="5" class="text-center text-muted py-4">该部门暂无在职员工</td></tr>
+                    <tr><td colspan="8" class="text-center text-muted py-4">该部门暂无在职员工</td></tr>
                 {% endfor %}
                 </tbody>
             </table>
@@ -68,29 +76,25 @@
 {% endif %}
 
 <div class="row mt-3">
-    <div class="col-md-4">
-        <div class="card shadow-sm text-center border-success">
-            <div class="card-body">
-                <div class="text-muted small">出勤天数</div>
-                <h2 class="text-success mb-0">{{ stats.attend_days }}</h2>
-            </div>
-        </div>
+    <div class="col-md-3">
+        <div class="card shadow-sm text-center border-success"><div class="card-body">
+            <div class="text-muted small">出勤天数</div><h2 class="text-success mb-0">{{ stats.attend_days }}</h2>
+        </div></div>
     </div>
-    <div class="col-md-4">
-        <div class="card shadow-sm text-center border-danger">
-            <div class="card-body">
-                <div class="text-muted small">缺卡天数</div>
-                <h2 class="text-danger mb-0">{{ stats.absent_days }}</h2>
-            </div>
-        </div>
+    <div class="col-md-3">
+        <div class="card shadow-sm text-center border-danger"><div class="card-body">
+            <div class="text-muted small">迟到 / 早退</div><h2 class="text-danger mb-0">{{ stats.late_days }} / {{ stats.early_days }}</h2>
+        </div></div>
     </div>
-    <div class="col-md-4">
-        <div class="card shadow-sm text-center border-secondary">
-            <div class="card-body">
-                <div class="text-muted small">统计月份</div>
-                <h2 class="mb-0">{{ year }}-{{ '%02d' | format(month) }}</h2>
-            </div>
-        </div>
+    <div class="col-md-3">
+        <div class="card shadow-sm text-center border-info"><div class="card-body">
+            <div class="text-muted small">请假天数</div><h2 class="text-info mb-0">{{ stats.leave_days }}</h2>
+        </div></div>
+    </div>
+    <div class="col-md-3">
+        <div class="card shadow-sm text-center border-secondary"><div class="card-body">
+            <div class="text-muted small">缺卡天数</div><h2 class="mb-0">{{ stats.absent_days }}</h2>
+        </div></div>
     </div>
 </div>
 
@@ -98,7 +102,7 @@
     <div class="card-header bg-white"><i class="bi bi-table"></i> 当月打卡明细</div>
     <div class="card-body p-0">
         <table class="table table-hover mb-0 align-middle">
-            <thead class="table-light"><tr><th>日期</th><th>星期</th><th>签到</th><th>签退</th></tr></thead>
+            <thead class="table-light"><tr><th>日期</th><th>星期</th><th>签到</th><th>签退</th><th>状态</th></tr></thead>
             <tbody>
             {% for rec in stats.records %}
                 <tr>
@@ -106,9 +110,14 @@
                     <td>{{ ['周一','周二','周三','周四','周五','周六','周日'][rec.work_date.weekday()] }}</td>
                     <td>{{ rec.check_in_at | fmt_dt }}</td>
                     <td>{{ rec.check_out_at | fmt_dt }}</td>
+                    <td>
+                        <span class="badge bg-secondary">{{ rec.day_status_labels }}</span>
+                        {% if rec.is_late %}<span class="badge bg-danger">迟 {{ rec.late_minutes }}分</span>{% endif %}
+                        {% if rec.is_early %}<span class="badge bg-warning text-dark">早 {{ rec.early_leave_minutes }}分</span>{% endif %}
+                    </td>
                 </tr>
             {% else %}
-                <tr><td colspan="4" class="text-center text-muted py-4">当月暂无打卡记录</td></tr>
+                <tr><td colspan="5" class="text-center text-muted py-4">当月暂无打卡记录</td></tr>
             {% endfor %}
             </tbody>
         </table>

@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% from "_macros.html" import render_pagination, page_header %}
+{% block title %}{% if view == 'approvals' %}待我审批{% else %}我的请假{% endif %} - 工厂管理系统{% endblock %}
+{% block content %}
+{% call page_header('请假管理') %}
+    {% if view == 'approvals' %}
+        <a class="btn btn-outline-secondary" href="{{ url_for('attendance.leave_list') }}">我的请假</a>
+    {% else %}
+        <a class="btn btn-primary" href="{{ url_for('attendance.leave_new') }}"><i class="bi bi-plus-lg"></i> 请假申请</a>
+        {% if current_user|perm_codes|length and 'attendance.leave.approve' in current_user|perm_codes %}
+        <a class="btn btn-outline-secondary" href="{{ url_for('attendance.leave_approvals') }}">待我审批</a>
+        {% endif %}
+    {% endif %}
+{% endcall %}
+<ul class="nav nav-tabs mb-3">
+    <li class="nav-item"><a class="nav-link {% if view == 'mine' %}active{% endif %}" href="{{ url_for('attendance.leave_list') }}">我的请假</a></li>
+    <li class="nav-item"><a class="nav-link {% if view == 'approvals' %}active{% endif %}" href="{{ url_for('attendance.leave_approvals') }}">待我审批</a></li>
+</ul>
+<div class="card shadow-sm"><div class="card-body p-0">
+<table class="table table-hover align-middle mb-0">
+    <thead class="table-light"><tr>
+        {% if view == 'approvals' %}<th>申请人</th><th>部门</th>{% endif %}
+        <th>类型</th><th>起止时间</th><th>天数</th><th>事由</th><th>状态</th>
+        {% if view == 'approvals' %}<th>操作</th>{% else %}<th>审批意见</th>{% endif %}
+    </tr></thead>
+    <tbody>
+    {% for lv in pagination.items %}
+        <tr>
+            {% if view == 'approvals' %}
+                <td>{{ lv.applicant.display_name() if lv.applicant else '-' }}</td>
+                <td>{{ lv.department.name if lv.department else '-' }}</td>
+            {% endif %}
+            <td>{{ lv.leave_type }}</td>
+            <td class="text-nowrap small">{{ lv.start_at | fmt_dt }} ~ {{ lv.end_at | fmt_dt }}</td>
+            <td>{{ lv.days }}</td>
+            <td>{{ lv.reason or '-' }}</td>
+            <td>
+                {% if lv.status == 'approved' %}<span class="badge bg-success">已批准</span>
+                {% elif lv.status == 'rejected' %}<span class="badge bg-danger">已驳回</span>
+                {% else %}<span class="badge bg-warning text-dark">待审批</span>{% endif %}
+            </td>
+            {% if view == 'approvals' %}
+                <td class="text-nowrap">
+                    <form method="POST" action="{{ url_for('attendance.leave_approve', leave_id=lv.id) }}" class="d-inline">
+                        {{ approve_form.hidden_tag() }}
+                        <button type="submit" name="decision" value="approve" class="btn btn-sm btn-success">批准</button>
+                        <button type="submit" name="decision" value="reject" class="btn btn-sm btn-outline-danger">驳回</button>
+                        <input type="text" name="approve_comment" class="form-control form-control-sm mt-1" placeholder="审批意见（可选）" maxlength="500">
+                    </form>
+                </td>
+            {% else %}
+                <td class="text-muted small">{{ lv.approve_comment or '-' }}</td>
+            {% endif %}
+        </tr>
+    {% else %}
+        <tr><td colspan="9" class="text-center text-muted py-4">暂无记录</td></tr>
+    {% endfor %}
+    </tbody>
+</table>
+</div></div>
+{{ render_pagination(pagination, 'attendance.leave_approvals' if view == 'approvals' else 'attendance.leave_list') }}
+{% endblock %}

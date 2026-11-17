@@ -27,11 +27,17 @@
                     {% endfor %}
                 </div>
             </div>
-            <div class="col-md-8">
+            <div class="col-md-4">
                 {{ form.role_ids.label(class="form-label") }}
                 {{ form.role_ids(class="form-select", size=5) }}
                 <div class="form-text">可见范围为「指定角色」时，请至少选择一个角色</div>
                 {% for err in form.role_ids.errors %}<div class="text-danger small">{{ err }}</div>{% endfor %}
+            </div>
+            <div class="col-md-4">
+                {{ form.department_ids.label(class="form-label") }}
+                {{ form.department_ids(class="form-select", size=5) }}
+                <div class="form-text">可见范围为「指定部门」时，请至少选择一个部门</div>
+                {% for err in form.department_ids.errors %}<div class="text-danger small">{{ err }}</div>{% endfor %}
             </div>
             <div class="col-12">
                 {{ form.submit(class="btn btn-primary") }}

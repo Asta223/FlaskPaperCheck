@@ -3,9 +3,14 @@
 {% block title %}人员管理 - 工厂管理系统{% endblock %}
 {% block content %}
 {% call page_header('人员管理') %}
-    {% if 'hr.manage' in current_user|perm_codes %}
-        <a class="btn btn-primary" href="{{ url_for('hr.employee_new') }}"><i class="bi bi-person-plus"></i> 新建员工</a>
-    {% endif %}
+    <div>
+        {% if 'system.export' in current_user|perm_codes %}
+            <a class="btn btn-outline-secondary" href="{{ url_for('hr.employee_export_csv', dept_id=dept_id or 0, keyword=keyword) }}"><i class="bi bi-download"></i> 导出 CSV</a>
+        {% endif %}
+        {% if 'hr.manage' in current_user|perm_codes %}
+            <a class="btn btn-primary" href="{{ url_for('hr.employee_new') }}"><i class="bi bi-person-plus"></i> 新建员工</a>
+        {% endif %}
+    </div>
 {% endcall %}
 <div class="row">
     <!-- 左：部门树筛选 -->

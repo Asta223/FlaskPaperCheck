@@ -22,8 +22,14 @@ def index():
         peer = None
 
     messages = []
+    earliest_id = 0
+    has_more = False
     if peer is not None:
-        messages = chat_service.pair_messages(current_user.id, peer.id)
+        # 首屏加载最近 20 条（P1-13），并判断是否还有更早消息
+        all_count = chat_service.pair_messages(current_user.id, peer.id, limit=100000)
+        messages = all_count[-20:]
+        earliest_id = messages[0].id if messages else 0
+        has_more = len(all_count) > len(messages)
         chat_service.mark_read(current_user.id, peer.id)  # 打开即已读
 
     colleagues = (User.query.filter(User.id != current_user.id, User.is_active.is_(True))
@@ -34,7 +40,7 @@ def index():
     last_id = messages[-1].id if messages else 0
     return render_template('chat/index.html', conversations=conversations, peer=peer,
                            messages=messages, colleagues=colleagues, form=form,
-                           last_id=last_id)
+                           last_id=last_id, earliest_id=earliest_id, has_more=has_more)
 
 
 @bp.route('/send', methods=['POST'])
@@ -70,11 +76,28 @@ def api_unread():
 @bp.route('/api/messages')
 @login_required
 def api_messages():
-    """JSON：增量新消息（id > after_id）。"""
+    """JSON：增量新消息（after_id）或更早历史页（before_id），二者互斥。"""
     peer_id = request.args.get('peer_id', type=int)
     after_id = request.args.get('after_id', 0, type=int)
+    before_id = request.args.get('before_id', type=int)
+    limit = request.args.get('limit', 20, type=int)
+    limit = max(1, min(limit or 20, 100))
     if not peer_id:
         return {'code': 1, 'data': None, 'message': '缺少 peer_id'}, 400
+
+    if before_id is not None and before_id > 0:
+        # 历史页：用 before_id+1 作边界再多取 1 条判断 has_more
+        window = chat_service.pair_messages(current_user.id, peer_id,
+                                            before_id=before_id, limit=limit + 1)
+        has_more = len(window) > limit
+        msgs = window[:limit]
+        earliest_id = msgs[0].id if msgs else before_id
+        return {'code': 0,
+                'data': {'messages': [m.to_dict() for m in msgs],
+                         'earliest_id': earliest_id, 'has_more': has_more},
+                'message': 'ok'}
+
+    # P0 默认分支：after_id 增量，保持原行为（limit 200 默认）
     msgs = chat_service.pair_messages(current_user.id, peer_id, after_id=after_id)
     last_id = msgs[-1].id if msgs else after_id
     return {'code': 0,

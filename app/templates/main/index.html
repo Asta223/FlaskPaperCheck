@@ -38,13 +38,28 @@
         <div class="card shadow-sm border-success">
             <div class="card-body">
                 <div class="d-flex justify-content-between">
-                    <div><div class="text-muted small">未读消息</div><h3 class="mb-0">{{ unread }}</h3></div>
+                    <div><div class="text-muted small">未读消息</div><h3 class="mb-0">{{ unread + warning_unread }}</h3>
+                        <small class="text-muted">聊天 {{ unread }} · 预警 {{ warning_unread }}</small></div>
                     <i class="bi bi-chat-dots fs-2 text-success"></i>
                 </div>
             </div>
         </div>
     </div>
 </div>
+
+{% if pending_leaves is not none %}
+<div class="row g-3 mb-4">
+    <div class="col-12">
+        <a class="card shadow-sm border-warning text-decoration-none d-block"
+           href="{{ url_for('attendance.leave_approvals') }}">
+            <div class="card-body d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-exclamation-circle text-warning"></i> 待我审批请假</span>
+                <span class="badge bg-warning text-dark fs-6">{{ pending_leaves }}</span>
+            </div>
+        </a>
+    </div>
+</div>
+{% endif %}
 
 <div class="row g-3">
     <div class="col-md-8">
@@ -81,6 +96,9 @@
             <div class="card-body d-grid gap-2">
                 {% if 'attendance.clock' in current_user|perm_codes %}
                     <a class="btn btn-outline-primary text-start" href="{{ url_for('attendance.clock') }}"><i class="bi bi-alarm"></i> 考勤打卡</a>
+                {% endif %}
+                {% if 'attendance.leave.apply' in current_user|perm_codes %}
+                    <a class="btn btn-outline-primary text-start" href="{{ url_for('attendance.leave_new') }}"><i class="bi bi-calendar2-plus"></i> 请假申请</a>
                 {% endif %}
                 {% if 'production.manage' in current_user|perm_codes %}
                     <a class="btn btn-outline-primary text-start" href="{{ url_for('production.order_new') }}"><i class="bi bi-plus-circle"></i> 新建工单</a>
