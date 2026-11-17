@@ -8,7 +8,7 @@ P0 为 9 大业务模块；P1 增量已交付：请假申请与审批、迟到�
 
 - Flask 2.2+ 应用工厂 + Flask-SQLAlchemy + Flask-Login + Flask-WTF + Flask-Migrate
 - Bootstrap5 CDN + Jinja2 服务端渲染，中文界面
-- 数据库：MySQL（生产）/ SQLite（开发验证，`DB_ENGINE=sqlite`）
+- 数据库：MySQL（当前项目库 `FactoryManagementSystem`，见根目录 `.env`）/ SQLite（开发验证，`DB_ENGINE=sqlite`）
 
 ## 快速开始（开发验证）
 
@@ -17,6 +17,7 @@ P0 为 9 大业务模块；P1 增量已交付：请假申请与审批、迟到�
 venv\Scripts\python.exe -m pip install -r requirements.txt
 
 # 2. 配置（项目启动时自动读取根目录 .env，零新增依赖）
+#    当前项目 .env 已配置连接 MySQL 的 FactoryManagementSystem 库（root/123，测试数据已填充）。
 #    完全不配置 DB_* 时自动使用本地 SQLite（factory_mgmt.db），
 #    一般无需任何操作；本地 .env 由 config.py 自动读取且不入库，
 #    如需覆盖可复制 .env.example 为 .env 后修改，或直接设置环境变量
