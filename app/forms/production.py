@@ -1,9 +1,38 @@
-"""生产工单表单。"""
+"""生产工单表单：工序档案、工单、工序行项、领料。"""
 from flask_wtf import FlaskForm
-from wtforms import DateField, IntegerField, SelectField, StringField, SubmitField, TextAreaField
+from wtforms import DateField, FloatField, IntegerField, SelectField, StringField, SubmitField, \
+    TextAreaField
 from wtforms.validators import DataRequired, Length, NumberRange, Optional
 
 from app.utils.time_utils import today
+
+ZERO_CHOICE = (0, '-- 无 --')
+
+
+def fill_process_choices(form) -> None:
+    """运行时填充：工序档案下拉（仅启用项，按排序）。"""
+    from app.models.production import Process
+    form.process_id.choices = [
+        (p.id, '%s %s%s' % (p.code, p.name,
+                           ('（参考%.2fh）' % p.standard_hours) if p.standard_hours else ''))
+        for p in Process.query.filter_by(is_active=True).order_by(Process.sort_order, Process.id).all()
+    ]
+
+
+class ProcessForm(FlaskForm):
+    """工序档案新建/编辑表单。"""
+    code = StringField('工序编码', validators=[
+        DataRequired(message='请输入工序编码'), Length(max=32),
+    ])
+    name = StringField('工序名称', validators=[
+        DataRequired(message='请输入工序名称'), Length(max=64),
+    ])
+    standard_hours = FloatField('参考工时(小时)', validators=[
+        Optional(), NumberRange(min=0, message='参考工时不小于0'),
+    ], default=0)
+    sort_order = IntegerField('排序号', validators=[Optional()], default=0)
+    remark = StringField('备注', validators=[Optional(), Length(max=255)])
+    submit = SubmitField('保存')
 
 
 def fill_department_choices(form) -> None:
@@ -24,9 +53,6 @@ def fill_issue_choices(form) -> None:
         (m.id, '%s（%s）' % (m.name, m.code))
         for m in Material.query.filter_by(is_active=True).order_by(Material.code).all()
     ]
-
-ZERO_CHOICE = (0, '-- 无 --')
-
 
 def fill_workorder_choices(form) -> None:
     """运行时填充：负责人/操作人下拉（按表单实际字段自动跳过）。"""
@@ -60,16 +86,25 @@ class WorkOrderForm(FlaskForm):
 
 
 class WorkOrderStepForm(FlaskForm):
-    """工序新增表单。"""
-    name = StringField('工序名称', validators=[
-        DataRequired(message='请输入工序名称'), Length(max=128),
-    ])
+    """工序新增表单：只能从已维护工序档案下拉选择，不允许自由输入名称。"""
+    process_id = SelectField('工序', coerce=int,
+                             validators=[DataRequired(message='请选择已维护的工序')])
     seq = IntegerField('顺序号', validators=[
         DataRequired(message='请输入顺序号'), NumberRange(min=1, message='顺序号必须大于0'),
     ])
     operator_id = SelectField('操作人', coerce=int, validators=[Optional()])
     remark = StringField('备注', validators=[Optional(), Length(max=255)])
     submit = SubmitField('添加工序')
+
+
+class StepLaborForm(FlaskForm):
+    """工时修正表单：完成后可按实际消耗修正（生产侧无审批，直接留痕）。"""
+    labor_hours = FloatField('消耗工时(小时)', validators=[
+        DataRequired(message='请输入消耗工时'),
+        NumberRange(min=0, message='消耗工时不小于0'),
+    ])
+    remark = StringField('备注', validators=[Optional(), Length(max=255)])
+    submit = SubmitField('保存工时')
 
 
 class IssueForm(FlaskForm):

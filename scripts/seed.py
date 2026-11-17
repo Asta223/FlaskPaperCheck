@@ -20,7 +20,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app import create_app, db  # noqa: E402
 from app.models import (AttendanceRecord, Department, Inventory, Material,  # noqa: E402
-                        MaterialCategory, Role, User, Warehouse, WorkOrder, WorkOrderStep)
+                        MaterialCategory, Process, Role, User, Warehouse, WorkOrder,
+                        WorkOrderStep)
 from app.utils.permissions import ALL_PERMISSION_CODES, PERMISSION_REGISTRY  # noqa: E402
 from app.utils.time_utils import now  # noqa: E402
 
@@ -28,8 +29,8 @@ from app.utils.time_utils import now  # noqa: E402
 BUILTIN_ROLES = [
     ('superadmin', '超级管理员', sorted(ALL_PERMISSION_CODES), '内置角色：全权限（代码硬编码放行）'),
     ('leader', '部门主管', ['hr.view', 'attendance.clock', 'attendance.view', 'attendance.view_all',
-                            'production.view', 'production.manage', 'files.view',
-                            'attendance.leave.apply', 'attendance.leave.approve',
+                            'production.view', 'production.manage', 'production.process.manage',
+                            'files.view', 'attendance.leave.apply', 'attendance.leave.approve',
                             'attendance.summary.view', 'system.export'],
      '内置角色：本部门人员/考勤、打卡、工单调度、请假审批、导出'),
     ('keeper', '仓管员', ['attendance.clock', 'warehouse.view', 'warehouse.manage',
@@ -37,8 +38,8 @@ BUILTIN_ROLES = [
                           'production.issue', 'attendance.leave.apply'],
      '内置角色：打卡/出入库/库存/物料/流水/领料'),
     ('producer', '生产管理员', ['attendance.clock', 'production.view', 'production.manage',
-                                'warehouse.view', 'material.manage', 'files.view',
-                                'production.issue', 'attendance.leave.apply'],
+                                'production.process.manage', 'warehouse.view', 'material.manage',
+                                'files.view', 'production.issue', 'attendance.leave.apply'],
      '内置角色：打卡/工单创建与流转、领料'),
     ('staff', '普通员工', ['attendance.clock', 'attendance.view', 'files.view',
                            'attendance.leave.apply'],
@@ -174,6 +175,19 @@ def seed_sample_data() -> None:
         warehouse2 = Warehouse(name='成品仓', location='2号厂房')
         db.session.add(warehouse2)
 
+    # 工序档案（主数据：工厂标准工序，工单只能引用）
+    sample_processes = [
+        ('OP01', '下料', 1.0, 1),
+        ('OP02', '机加工', 2.0, 2),
+        ('OP03', '组装', 1.5, 3),
+        ('OP04', '质检', 0.5, 4),
+        ('OP05', '包装', 0.5, 5),
+    ]
+    for code, name, std_hours, sort in sample_processes:
+        if Process.query.filter_by(code=code).first() is None:
+            db.session.add(Process(code=code, name=name, standard_hours=std_hours,
+                                   sort_order=sort))
+
     # 示例工单（幂等：按单号查）
     if not WorkOrder.query.filter_by(order_no='WO20250101001').first():
         admin = User.query.filter_by(username='admin').first()
@@ -188,9 +202,15 @@ def seed_sample_data() -> None:
         )
         db.session.add(order)
         db.session.flush()
-        db.session.add(WorkOrderStep(work_order_id=order.id, name='下料', seq=1))
-        db.session.add(WorkOrderStep(work_order_id=order.id, name='组装', seq=2))
-        db.session.add(WorkOrderStep(work_order_id=order.id, name='质检', seq=3))
+        db.session.add(WorkOrderStep(work_order_id=order.id,
+                                     process_id=Process.query.filter_by(code='OP01').first().id,
+                                     name='下料', seq=1))
+        db.session.add(WorkOrderStep(work_order_id=order.id,
+                                     process_id=Process.query.filter_by(code='OP03').first().id,
+                                     name='组装', seq=2))
+        db.session.add(WorkOrderStep(work_order_id=order.id,
+                                     process_id=Process.query.filter_by(code='OP04').first().id,
+                                     name='质检', seq=3))
 
     db.session.flush()
 
