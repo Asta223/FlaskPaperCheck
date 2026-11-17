@@ -40,6 +40,54 @@ def _generate_doc_no(doc_type: str) -> str:
         seq += 1
 
 
+def reverse_stock_document(doc: StockDocument, operator_id: int) -> int:
+    """彻底删除单据时反向冲销库存，并追加一条冲销流水（同事务）。
+
+    - 原入库单 → 从库存扣回数量；库存已被后续出库消耗则拒绝删除；
+    - 原出库单 → 把数量加回库存；
+    - 原流水作为不可变审计保留，新增方向相反的冲销流水（单号后缀 -R）。
+
+    Returns:
+        冲销后的库存数量。
+
+    Raises:
+        InsufficientStockError: 原入库单对应的库存不足以扣回。
+    """
+    inv = (Inventory.query
+           .filter_by(warehouse_id=doc.warehouse_id, material_id=doc.material_id)
+           .with_for_update().first())
+    before = (inv.quantity or 0) if inv is not None else 0
+    if doc.doc_type == 'in':
+        if before < doc.quantity:
+            db.session.rollback()
+            raise InsufficientStockError(before)
+        after = before - doc.quantity
+    else:  # out：加回
+        after = before + doc.quantity
+    if inv is None:
+        inv = Inventory(warehouse_id=doc.warehouse_id, material_id=doc.material_id,
+                        quantity=0, warn_threshold=0)
+        db.session.add(inv)
+    inv.quantity = after
+
+    reverse_type = 'out' if doc.doc_type == 'in' else 'in'
+    db.session.add(StockLedger(
+        doc_no='%s-R' % doc.doc_no,
+        doc_type=reverse_type,
+        warehouse_id=doc.warehouse_id,
+        material_id=doc.material_id,
+        quantity=doc.quantity,
+        before_balance=before,
+        after_balance=after,
+        related_order_id=doc.related_order_id,
+        handler_id=operator_id,
+        remark='冲销单据 %s（彻底删除%s单）' % (
+            doc.doc_no, '入' if doc.doc_type == 'in' else '出'),
+        created_at=now(),
+    ))
+    return after
+
+
 def apply_stock_document(doc_type: str, warehouse_id: int, material_id: int, quantity: int,
                          handler_id: int, created_by: int,
                          related_order_id=None, remark: str = '',

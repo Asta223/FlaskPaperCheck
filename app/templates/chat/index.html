@@ -3,10 +3,12 @@
 {% block head %}
 <style>
     .chat-box { height: 55vh; overflow-y: auto; background: #f8f9fa; }
-    .bubble { max-width: 70%; padding: 8px 12px; border-radius: 12px; margin-bottom: 8px; word-break: break-all; }
+    .bubble { max-width: 70%; padding: 8px 12px; border-radius: 12px; margin-bottom: 8px; word-break: break-all; position: relative; }
     .bubble.me { background: #0d6efd; color: #fff; margin-left: auto; }
     .bubble.peer { background: #ffffff; border: 1px solid #e5e5e5; }
     .bubble .time { font-size: 0.72rem; opacity: 0.75; display: block; margin-top: 2px; }
+    .bubble .msg-del { position: absolute; top: 2px; right: 4px; border: 0; background: transparent; color: inherit; opacity: .55; font-size: .9rem; line-height: 1; padding: 0 3px; cursor: pointer; }
+    .bubble .msg-del:hover { opacity: 1; }
 </style>
 {% endblock %}
 {% block content %}
@@ -64,9 +66,12 @@
                         <div id="olderMsgs"></div>
                         {% for msg in messages %}
                             {% set mine = msg.sender_id == current_user.id %}
-                            <div class="bubble {{ 'me' if mine else 'peer' }}">
+                            <div class="bubble {{ 'me' if mine else 'peer' }}" {% if mine %}data-msg-id="{{ msg.id }}"{% endif %}>
                                 {{ msg.content }}
                                 <span class="time">{{ msg.created_at | fmt_dt }} · {{ msg.sender.display_name() if msg.sender else '' }}</span>
+                                {% if mine %}
+                                    <button type="button" class="msg-del" data-id="{{ msg.id }}" title="彻底删除这条消息">&times;</button>
+                                {% endif %}
                             </div>
                         {% endfor %}
                     </div>
@@ -110,6 +115,16 @@
             span.textContent = msg.created_at + ' · ' + msg.sender_name;
             div.appendChild(document.createTextNode(msg.content));
             div.appendChild(span);
+            if (mine && msg.id) {
+                div.dataset.msgId = msg.id;
+                var del = document.createElement('button');
+                del.type = 'button';
+                del.className = 'msg-del';
+                del.dataset.id = msg.id;
+                del.title = '彻底删除这条消息';
+                del.textContent = '\u00d7';
+                div.appendChild(del);
+            }
             box.appendChild(div);
             box.scrollTop = box.scrollHeight;
         }
@@ -133,6 +148,25 @@
         setInterval(poll, 5000);
         box.scrollTop = box.scrollHeight;
 
+        // 彻底删除自己的消息（事件委托，兼容轮询动态追加的历史消息）
+        box.addEventListener('click', function (e) {
+            var btn = e.target.closest('.msg-del');
+            if (!btn || !confirm('彻底删除这条消息？该操作不可恢复。')) return;
+            var tokenEl = document.querySelector('input[name="csrf_token"]');
+            fetch('/chat/messages/' + encodeURIComponent(btn.dataset.id) + '/delete', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                body: 'csrf_token=' + encodeURIComponent(tokenEl ? tokenEl.value : '')
+            }).then(function (r) { return r.json(); }).then(function (json) {
+                if (json && json.code === 0) {
+                    var bubble = btn.closest('.bubble');
+                    if (bubble) bubble.remove();
+                } else {
+                    alert('删除失败：' + ((json && json.message) || '未知错误'));
+                }
+            }).catch(function () { alert('删除失败，请重试'); });
+        });
+
         // P1-13：加载更早消息（before_id），追加到顶部并保持滚动位置
         var earliestId = parseInt(box.dataset.earliestId, 10) || 0;
         var hasMore = box.dataset.hasMore === '1';
@@ -149,6 +183,16 @@
             span.textContent = msg.created_at + ' · ' + msg.sender_name;
             div.appendChild(document.createTextNode(msg.content));
             div.appendChild(span);
+            if (mine && msg.id) {
+                div.dataset.msgId = msg.id;
+                var delBtn = document.createElement('button');
+                delBtn.type = 'button';
+                delBtn.className = 'msg-del';
+                delBtn.dataset.id = msg.id;
+                delBtn.title = '彻底删除这条消息';
+                delBtn.textContent = '\u00d7';
+                div.appendChild(delBtn);
+            }
             olderWrap.appendChild(div);
         }
 

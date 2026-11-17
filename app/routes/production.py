@@ -19,6 +19,7 @@ from app.services.inventory_service import InsufficientStockError, InventoryServ
     apply_stock_document
 from app.services.log_service import log_operation
 from app.utils.data_scope import visible_department_ids
+from app.utils.delete_guard import find_references, format_references
 from app.utils.permissions import permission_required
 from app.utils.time_utils import now
 
@@ -153,6 +154,27 @@ def _generate_order_no() -> str:
         seq += 1
 
 
+@bp.route('/processes/<int:process_id>/delete', methods=['POST'])
+@login_required
+@permission_required('production.process.manage')
+def process_delete(process_id):
+    """彻底删除工序档案（物理删）：已被工单步骤引用时拒绝，避免历史留痕断链。"""
+    process = db.get_or_404(Process, process_id)
+    refs = find_references(process)
+    if refs:
+        flash('工序「%s」仍被 %s 引用，不能彻底删除；可先停用' % (
+            process.name, format_references(refs)), 'danger')
+        return redirect(url_for('production.process_list'))
+    name = process.name
+    pid = process.id
+    db.session.delete(process)
+    log_operation(module='production', action='delete', target_type='process', target_id=pid,
+                  summary='彻底删除工序「%s」' % name)
+    db.session.commit()
+    flash('工序「%s」已彻底删除' % name, 'success')
+    return redirect(url_for('production.process_list'))
+
+
 @bp.route('/orders/new', methods=['GET', 'POST'])
 @login_required
 @permission_required('production.manage')
@@ -205,6 +227,27 @@ def order_edit(order_id):
         return redirect(url_for('production.order_detail', order_id=order.id))
     return render_template('production/order_form.html', form=form, title='编辑工单',
                            target=order)
+
+
+@bp.route('/orders/<int:order_id>/delete', methods=['POST'])
+@login_required
+@permission_required('production.manage')
+def order_delete(order_id):
+    """彻底删除工单（物理删）：误建工单纠错用，已有工序/领料记录时拒绝。"""
+    order = db.get_or_404(WorkOrder, order_id)
+    refs = find_references(order)
+    if refs:
+        flash('工单 %s 仍被 %s 引用，不能彻底删除' % (
+            order.order_no, format_references(refs)), 'danger')
+        return redirect(url_for('production.order_list'))
+    order_no = order.order_no
+    oid = order.id
+    db.session.delete(order)
+    log_operation(module='production', action='delete', target_type='work_order',
+                  target_id=oid, summary='彻底删除工单 %s' % order_no)
+    db.session.commit()
+    flash('工单 %s 已彻底删除' % order_no, 'success')
+    return redirect(url_for('production.order_list'))
 
 
 @bp.route('/orders/<int:order_id>')

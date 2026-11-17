@@ -13,6 +13,9 @@ from app.models.org import Department
 from app.models.rbac import Role
 from app.models.user import User
 from app.services.log_service import log_operation
+from app.utils.delete_guard import (USER_PURGE_TABLES, find_references,
+                                    format_references, purge_associations,
+                                    purge_user_auxiliary)
 from app.utils.permissions import permission_required
 from app.utils.time_utils import today
 
@@ -206,6 +209,32 @@ def employee_toggle(user_id):
     return redirect(url_for('hr.employee_list'))
 
 
+@bp.route('/employees/<int:user_id>/delete', methods=['POST'])
+@login_required
+@permission_required('hr.manage')
+def employee_delete(user_id):
+    """彻底删除员工账号（物理删）：误建账号纠错用，仍被业务引用时拒绝。"""
+    user = db.get_or_404(User, user_id)
+    if user.id == current_user.id:
+        flash('不能删除当前登录账号', 'danger')
+        return redirect(url_for('hr.employee_list'))
+    refs = find_references(user, extra_ignore=USER_PURGE_TABLES)
+    if refs:
+        flash('员工 %s 仍被 %s 引用，不能彻底删除；可先停用保留历史' % (
+            user.display_name(), format_references(refs)), 'danger')
+        return redirect(url_for('hr.employee_list'))
+    name = user.display_name()
+    uid = user.id
+    purge_user_auxiliary(uid)
+    purge_associations(user)
+    db.session.delete(user)
+    log_operation(module='hr', action='delete', target_type='employee', target_id=uid,
+                  summary='彻底删除员工 %s（%s）' % (name, user.employee_no))
+    db.session.commit()
+    flash('员工 %s 已彻底删除' % name, 'success')
+    return redirect(url_for('hr.employee_list'))
+
+
 # ---------------- 部门管理 ----------------
 
 @bp.route('/departments')
@@ -288,4 +317,26 @@ def department_delete(dept_id):
     dept.is_active = False
     db.session.commit()
     flash('部门已停用', 'warning')
+    return redirect(url_for('hr.departments'))
+
+
+@bp.route('/departments/<int:dept_id>/purge', methods=['POST'])
+@login_required
+@permission_required('dept.manage')
+def department_purge(dept_id):
+    """彻底删除部门（物理删）：误建部门纠错用，仍被引用时拒绝。"""
+    dept = db.get_or_404(Department, dept_id)
+    refs = find_references(dept)
+    if refs:
+        flash('部门「%s」仍被 %s 引用，不能彻底删除；可先停用保留历史' % (
+            dept.name, format_references(refs)), 'danger')
+        return redirect(url_for('hr.departments'))
+    name = dept.name
+    did = dept.id
+    purge_associations(dept)
+    db.session.delete(dept)
+    log_operation(module='hr', action='delete', target_type='department', target_id=did,
+                  summary='彻底删除部门「%s」' % name)
+    db.session.commit()
+    flash('部门「%s」已彻底删除' % name, 'success')
     return redirect(url_for('hr.departments'))

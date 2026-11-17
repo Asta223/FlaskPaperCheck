@@ -33,6 +33,11 @@
                                             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                             <button class="btn btn-link btn-sm text-danger p-0 small" type="submit">×</button>
                                         </form>
+                                        <form class="d-inline" method="POST" action="{{ url_for('files.category_purge', cat_id=c.id) }}"
+                                              onsubmit="return confirm('彻底删除分类「{{ c.name }}」？该操作不可恢复，且仅当无子分类/文件引用时允许。');">
+                                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                            <button class="btn btn-link btn-sm text-danger p-0 small" type="submit">彻底删除</button>
+                                        </form>
                                     </span>
                                 {% endif %}
                                 {{ render_cat(cats, c.id) }}
@@ -90,7 +95,14 @@
                                     <form class="d-inline" method="POST" action="{{ url_for('files.file_delete', file_id=f.id) }}"
                                           onsubmit="return confirm('确认删除该文件？');">
                                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                                        <button class="btn btn-sm btn-outline-danger" type="submit">删除</button>
+                                        <button class="btn btn-sm btn-outline-warning" type="submit">停用</button>
+                                    </form>
+                                    <form class="d-inline" method="POST" action="{{ url_for('files.file_purge', file_id=f.id) }}"
+                                          onsubmit="return confirm('彻底删除文件「{{ f.name }}」？磁盘文件将一并删除，不可恢复。');">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                        <button class="btn btn-sm btn-outline-danger" type="submit" title="彻底删除（含磁盘文件）">
+                                            <i class="bi bi-trash3"></i>
+                                        </button>
                                     </form>
                                 {% endif %}
                             </td>
