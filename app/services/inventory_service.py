@@ -105,6 +105,18 @@ def apply_stock_document(doc_type: str, warehouse_id: int, material_id: int, qua
         db.session.add(doc)
         db.session.flush()  # 取 doc.id，流水用 doc.doc_no（无需 id，但确保单据先落库顺序）
 
+        # P1-15：出入库单据留痕（与业务同事务，失败操作不会走到此处）
+        from app.services.log_service import log_operation
+        log_operation(
+            module='warehouse', action='create', target_type='stock_document',
+            target_id=doc.id,
+            summary='%s单据 %s：%s#%s ×%s%s' % (
+                '入库' if doc_type == 'in' else '出库', doc.doc_no,
+                warehouse.name, material.name, qty,
+                ('（关联工单#%s）' % doc.related_order_id) if doc.related_order_id else ''),
+            operator_id=created_by,
+        )
+
         # P1-07：同事务生成不可变流水（含变动前后余额）
         ledger = StockLedger(
             doc_no=doc.doc_no,

@@ -35,34 +35,30 @@ def _set_site(user_id: int, peer_id: int, last_id: int) -> None:
         row.updated_at = now()
 
 
+def unread_by_peer(user_id: int) -> dict:
+    """按会话分组的精确未读计数 {peer_id: count}。
+
+    关键：site 是「消息 id 位点」而非「条数」，必须按 id > site 逐条过滤后计数。
+    绝不能用「该会话总条数 - site」——消息 id 全局自增，一旦被其他会话/本人消息
+    拉开间隔，总条数会远小于 site，导致未读被误判为 0（漏计）。
+    """
+    sites = {
+        r.peer_id: r.last_read_message_id
+        for r in ConversationRead.query.filter_by(user_id=user_id).all()
+    }
+    # 单次查询取出该用户收到的全部 (sender_id, message_id)，在内存按位点过滤聚合
+    rows = (db.session.query(ChatMessage.sender_id, ChatMessage.id)
+            .filter(ChatMessage.receiver_id == user_id).all())
+    counts = {}
+    for sender_id, msg_id in rows:
+        if msg_id > sites.get(sender_id, 0):
+            counts[sender_id] = counts.get(sender_id, 0) + 1
+    return counts
+
+
 def unread_count(user_id: int) -> int:
     """未读消息总数（基于位点的精确计数，替代 is_read 布尔计数）。"""
-    sites = {
-        r.peer_id: r.last_read_message_id
-        for r in ConversationRead.query.filter_by(user_id=user_id).all()
-    }
-    msgs = (db.session.query(ChatMessage.sender_id, func.count())
-            .filter(ChatMessage.receiver_id == user_id)
-            .group_by(ChatMessage.sender_id).all())
-    total = 0
-    for sender_id, count in msgs:
-        total += count - sites.get(sender_id, 0) if count > sites.get(sender_id, 0) else 0
-    return total
-
-
-def unread_by_peer(user_id: int) -> dict:
-    """按会话分组的精确未读计数 {peer_id: count}。"""
-    sites = {
-        r.peer_id: r.last_read_message_id
-        for r in ConversationRead.query.filter_by(user_id=user_id).all()
-    }
-    rows = (db.session.query(ChatMessage.sender_id, func.count())
-            .filter(ChatMessage.receiver_id == user_id)
-            .group_by(ChatMessage.sender_id).all())
-    return {
-        sender_id: count - sites.get(sender_id, 0)
-        for sender_id, count in rows if count > sites.get(sender_id, 0)
-    }
+    return sum(unread_by_peer(user_id).values())
 
 
 def unread_summary(user_id: int, limit: int = 20) -> dict:

@@ -129,10 +129,54 @@ def test_export_forbidden_without_permission(client):
 def test_export_row_limit(app_ctx):
     """超过行数上限：export_csv 抛 ExportLimitError（路由据此 flash 提示）。"""
     from app.services import export_service
+    original = app_ctx.config['MAX_EXPORT_ROWS']
     app_ctx.config['MAX_EXPORT_ROWS'] = 1
     try:
         export_service.export_csv(['a'], [[1], [2]], 'x')
         raised = False
     except export_service.ExportLimitError:
         raised = True
+    finally:
+        app_ctx.config['MAX_EXPORT_ROWS'] = original  # 还原，避免污染同会话后续用例
     assert raised
+
+
+# ---------------- QA Bug5/6 回归：操作日志完整性 ----------------
+
+def test_employee_create_and_edit_are_logged(client):
+    """QA-Bug5：员工新建/编辑/停用均写 OperationLog(hr/employee)。"""
+    login(client, 'admin', 'admin123')
+    token = get_csrf(client, '/hr/employees/new')
+    resp = client.post('/hr/employees/new', data={
+        'csrf_token': token, 'username': 'qa_log_user', 'employee_no': 'EQA001',
+        'name': '日志测试', 'department_id': 0, 'hire_date': '2025-01-01',
+        'password': 'abc12345',
+    }, follow_redirects=True)
+    assert resp.status_code == 200
+    assert OperationLog.query.filter_by(module='hr', action='create',
+                                        target_type='employee').count() >= 1
+    user = User.query.filter_by(username='qa_log_user').first()
+    assert user is not None
+    # 编辑
+    token = get_csrf(client, '/hr/employees/%d/edit' % user.id)
+    client.post('/hr/employees/%d/edit' % user.id, data={
+        'csrf_token': token, 'username': 'qa_log_user', 'employee_no': 'EQA001',
+        'name': '日志测试改', 'department_id': 0, 'hire_date': '2025-01-01',
+    }, follow_redirects=True)
+    assert OperationLog.query.filter_by(module='hr', action='update',
+                                        target_type='employee').count() >= 1
+
+
+def test_stock_document_in_out_is_logged(client):
+    """QA-Bug6：普通出入库单据（非领料）也写 OperationLog(warehouse/stock_document)。"""
+    from app.models import Material, Warehouse
+    from app.services.inventory_service import apply_stock_document
+
+    wh = Warehouse.query.filter_by(name='原材料仓').first()
+    mat = Material.query.filter_by(code='M0001').first()
+    before = OperationLog.query.filter_by(module='warehouse', action='create',
+                                          target_type='stock_document').count()
+    apply_stock_document('in', wh.id, mat.id, 3, handler_id=1, created_by=1)
+    after = OperationLog.query.filter_by(module='warehouse', action='create',
+                                         target_type='stock_document').count()
+    assert after == before + 1

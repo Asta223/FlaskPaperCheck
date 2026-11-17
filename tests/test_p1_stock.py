@@ -175,3 +175,28 @@ def test_warning_does_not_block_document(client):
     }, follow_redirects=True)
     assert resp.status_code == 200
     assert StockDocument.query.count() >= 1
+
+
+# ---------------- QA Bug4 回归：流水关联工单可查 ----------------
+
+def test_issue_is_atomic_and_bidirectionally_queryable(client):
+    """QA-Bug4：领料流水 related_order 关系可读，页面显示工单号链接。"""
+    wh, mat = _wh_mat()
+    apply_stock_document('in', wh.id, mat.id, 100, 1, 1)
+    order = _find_order()
+    login(client, 'producer1', '123456')
+    token = get_csrf(client, '/production/orders/%d' % order.id)
+    client.post('/production/orders/%d/issue' % order.id, data={
+        'csrf_token': token, 'warehouse_id': wh.id, 'material_id': mat.id,
+        'quantity': 5, 'remark': '',
+    }, follow_redirects=True)
+    db.session.expire_all()
+    led = StockLedger.query.filter_by(related_order_id=order.id).first()
+    assert led is not None and led.related_order is not None
+    assert led.related_order.order_no == order.order_no
+    assert led in order.stock_ledgers  # 双向关系：order.stock_ledgers 含该流水
+    # 流水页渲染工单号
+    login(client, 'admin', 'admin123')
+    resp = client.get('/warehouse/ledger')
+    assert resp.status_code == 200
+    assert order.order_no.encode() in resp.data

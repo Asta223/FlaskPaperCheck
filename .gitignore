@@ -52,5 +52,6 @@ Thumbs.db
 # Project-specific uploads (user uploaded files)
 data/uploads/
 
-# Pre-trained models (large files)
-models/
+# Pre-trained models (large files) —— 仅忽略项目根目录的 models/，
+# 不误伤 Flask 应用的 app/models/ 数据模型源码目录
+/models/

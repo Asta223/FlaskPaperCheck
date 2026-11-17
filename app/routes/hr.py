@@ -12,6 +12,7 @@ from app.forms.hr import DepartmentForm, EmployeeForm, fill_department_choices, 
 from app.models.org import Department
 from app.models.rbac import Role
 from app.models.user import User
+from app.services.log_service import log_operation
 from app.utils.permissions import permission_required
 from app.utils.time_utils import today
 
@@ -137,6 +138,10 @@ def employee_new():
         roles = Role.query.filter(Role.id.in_(form.roles.data or [])).all()
         user.roles = roles
         db.session.add(user)
+        db.session.flush()  # 取 user.id 供日志引用
+        log_operation(module='hr', action='create', target_type='employee',
+                      target_id=user.id,
+                      summary='新建员工 %s（%s）' % (user.display_name(), user.employee_no))
         db.session.commit()
         flash('员工创建成功', 'success')
         return redirect(url_for('hr.employee_list'))
@@ -166,6 +171,9 @@ def employee_edit(user_id):
         user.roles = Role.query.filter(Role.id.in_(form.roles.data or [])).all()
         if form.password.data:
             user.set_password(form.password.data)
+        log_operation(module='hr', action='update', target_type='employee',
+                      target_id=user.id,
+                      summary='编辑员工 %s（%s）' % (user.display_name(), user.employee_no))
         db.session.commit()
         flash('员工信息已保存', 'success')
         return redirect(url_for('hr.employee_list'))
@@ -184,10 +192,16 @@ def employee_toggle(user_id):
     user.is_active = not user.is_active
     if user.is_active:
         user.leave_date = None
+        action_desc = '复用'
         flash('员工 %s 已复用（恢复在职）' % user.display_name(), 'success')
     else:
         user.leave_date = today()
+        action_desc = '停用'
         flash('员工 %s 已停用（视为离职），历史数据保留' % user.display_name(), 'warning')
+    log_operation(module='hr', action='update', target_type='employee',
+                  target_id=user.id,
+                  summary='%s员工 %s（%s）' % (action_desc, user.display_name(),
+                                            user.employee_no))
     db.session.commit()
     return redirect(url_for('hr.employee_list'))
 

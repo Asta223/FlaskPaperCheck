@@ -17,13 +17,26 @@ from app.utils.permissions import has_permission, permission_required
 bp = Blueprint('files', __name__, url_prefix='/files')
 
 
-def _visible_dept_ids():
-    """当前用户部门 + 子部门 id 集合（A5，含子部门）。"""
+def _ancestor_dept_ids():
+    """当前用户部门的祖先链 id（含自身）。
+
+    与 FactoryFile.can_view() 的 departments 口径严格一致：
+    can_view 判定「用户部门 ∈ 授权部门的 descendant_ids()」，其逆关系即
+    「授权部门 ∈ 用户部门的祖先链（含自身）」。列表查询按后者过滤，确保
+    列表可见性与下载/预览（can_view）完全一致——授权部门 D 对 D 及其子孙可见。
+    """
     from app.models.org import Department
-    if not current_user.department_id:
+    own = current_user.department_id
+    if not own:
         return []
-    own = db.session.get(Department, current_user.department_id)
-    return own.descendant_ids() if own else []
+    ids = []
+    seen = set()
+    cur = db.session.get(Department, own)
+    while cur is not None and cur.id not in seen:
+        seen.add(cur.id)
+        ids.append(cur.id)
+        cur = db.session.get(Department, cur.parent_id) if cur.parent_id else None
+    return ids
 
 
 def _visible_files_query():
@@ -35,7 +48,7 @@ def _visible_files_query():
     if has_permission(current_user, 'files.manage') or current_user.has_role('superadmin'):
         return query
     role_ids = [role.id for role in current_user.roles]
-    dept_ids = _visible_dept_ids()
+    anc_dept_ids = _ancestor_dept_ids()
     return query.filter(or_(
         FactoryFile.visibility_type == 'all',
         FactoryFile.uploaded_by == current_user.id,
@@ -45,7 +58,7 @@ def _visible_files_query():
         ),
         FactoryFile.id.in_(
             db.session.query(file_department_visibility.c.file_id)
-            .filter(file_department_visibility.c.department_id.in_(dept_ids or [-1]))
+            .filter(file_department_visibility.c.department_id.in_(anc_dept_ids or [-1]))
         ),
     ))
 
