@@ -48,11 +48,11 @@ with app.app_context():
     check('admin 登录成功', resp.status_code == 200 and '工作台'.encode() in resp.data)
 
     def login(username, password):
-        """登出 + 登录辅助。"""
+        """登出 + 登录辅助，返回本次登录响应供调用方断言。"""
         client.get('/auth/logout')
-        client.post('/auth/login', data={'username': username, 'password': password,
-                                         'csrf_token': _get_csrf(client, '/auth/login')},
-                    follow_redirects=True)
+        return client.post('/auth/login', data={'username': username, 'password': password,
+                                                'csrf_token': _get_csrf(client, '/auth/login')},
+                           follow_redirects=True)
 
     # 3. 各模块主要页面 200
     pages = [
@@ -68,7 +68,7 @@ with app.app_context():
               'status=%s' % resp.status_code)
 
     # 4. 无权限 403（用 staff1 验证 rbac 页面）
-    login('staff1', '123456')
+    resp = login('staff1', '123456')
     check('staff1 登录成功', resp.status_code == 200)
     resp = client.get('/rbac/roles')
     check('staff1 访问 /rbac/roles -> 403', resp.status_code == 403,
