@@ -4,6 +4,8 @@ from wtforms import DateField, IntegerField, PasswordField, SelectField, SelectM
     StringField, SubmitField
 from wtforms.validators import DataRequired, Email, Length, NumberRange, Optional, Regexp
 
+from app.utils.time_utils import today
+
 ZERO_CHOICE = (0, '-- 无 --')
 
 
@@ -43,7 +45,8 @@ class EmployeeForm(FlaskForm):
     phone = StringField('手机号', validators=[Optional(), Length(max=20)])
     position = StringField('岗位', validators=[Optional(), Length(max=64)])
     department_id = SelectField('部门', coerce=int, validators=[Optional()])
-    hire_date = DateField('入职日期', validators=[Optional()], format='%Y-%m-%d')
+    hire_date = DateField('入职日期', validators=[Optional()], format='%Y-%m-%d',
+                          default=today)
     roles = SelectMultipleField('角色', coerce=int, validators=[Optional()])
     password = PasswordField('初始密码', validators=[
         Optional(), Length(min=6, message='密码至少6位'),
