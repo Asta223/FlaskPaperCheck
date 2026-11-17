@@ -144,12 +144,12 @@ def test_admin_menu_full(client):
         assert present.encode() in html, 'admin 菜单应含: %s' % present
 
 
-def test_leader_menu_no_clock_no_rbac(client):
+def test_leader_menu_has_clock_no_rbac(client):
     login(client, 'leader1', '123456')
     html = client.get('/').data
     assert '生产工单'.encode() in html       # 有 production.view
     assert '打卡记录'.encode() in html       # 有 attendance.view
-    assert '考勤打卡'.encode() not in html   # 无 attendance.clock
+    assert '考勤打卡'.encode() in html       # 全体内置角色均可打卡
     assert '角色权限'.encode() not in html   # 无 rbac.manage
     assert '库存查询'.encode() not in html   # 无 warehouse.view
 

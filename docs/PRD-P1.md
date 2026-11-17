@@ -368,6 +368,7 @@
 | 权限点 | 中文名 | 默认拥有角色 | 关联需求 | 说明 |
 |---|---|---|---|---|
 | `attendance.leave.apply` | 请假申请 | staff、leader、producer、keeper、archivist、superadmin（全体业务角色） | P1-01 | 提交请假申请 |
+| `attendance.clock`（P0 权限，此处重申） | 考勤打卡 | **全体内置角色**（staff/leader/keeper/producer/archivist/superadmin） | P1-01 | 工厂所有员工均可打卡，含主管/仓管/生产/档案角色 |
 | `attendance.leave.approve` | 请假审批 | leader、superadmin | P1-01 | 审批本部门请假（受数据权限约束） |
 | `attendance.summary.view` | 部门考勤汇总 | leader、superadmin | P1-03 | 查看部门考勤汇总 |
 | `production.issue` | 工单领料 | producer、keeper、superadmin | P1-05 | 发起领料/关联出库 |

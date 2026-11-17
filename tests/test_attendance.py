@@ -15,6 +15,19 @@ def _staff():
 
 # ---------------- 打卡路由 ----------------
 
+def test_all_roles_can_clock(client):
+    """全员打卡：admin + 五种内置业务角色均可访问打卡页并成功签到。"""
+    accounts = [('admin', 'admin123'), ('leader1', '123456'), ('keeper1', '123456'),
+                ('producer1', '123456'), ('staff1', '123456'), ('arch1', '123456')]
+    for username, password in accounts:
+        login(client, username, password)
+        assert client.get('/attendance/clock').status_code == 200, username
+        token = get_csrf(client, '/attendance/clock')
+        resp = client.post('/attendance/clock', data={'csrf_token': token, 'action': 'in'},
+                           follow_redirects=True)
+        assert '签到成功'.encode() in resp.data, username
+
+
 def test_clock_in_idempotent(client):
     """重复点签到：仅一条记录、签到时间不变。"""
     login(client, 'staff1', '123456')
