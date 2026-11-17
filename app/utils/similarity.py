@@ -113,3 +113,53 @@ def jaccard_similarity(new_text, corpus_texts):
             sim = len(intersection) / len(union)
         sim_scores.append(sim)
     return np.array(sim_scores)
+
+# ---------- 句子级高亮（抄袭片段标记，所有算法通用） ----------
+def highlight_sentences(paper_text, corpus_items, threshold=0.5):
+    """
+    把待查重文本按句切分，与语料库所有句子做 TF-IDF 余弦相似度，
+    返回高于阈值的“疑似相似句”及其最佳匹配来源。
+    corpus_items: list of dict，元素含 'title' / 'source' / 'text'
+    返回: [{'index','sentence','score','matched','matched_title','matched_source'}]
+    """
+    paper_sents = split_sentences(paper_text)
+    if not paper_sents:
+        return []
+
+    corpus_sents = []  # (句子文本, 标题, 来源)
+    for item in corpus_items:
+        if not item.get('text'):
+            continue
+        for s in split_sentences(item['text']):
+            corpus_sents.append((s, item.get('title', ''), item.get('source', '')))
+    if not corpus_sents:
+        return []
+
+    all_sents = paper_sents + [c[0] for c in corpus_sents]
+    vectorizer = TfidfVectorizer(tokenizer=lambda x: jieba.lcut(x), token_pattern=None)
+    try:
+        matrix = vectorizer.fit_transform(all_sents)
+    except ValueError:
+        return []
+    if matrix.shape[1] == 0:
+        return []
+
+    paper_vecs = matrix[:len(paper_sents)]
+    corpus_vecs = matrix[len(paper_sents):]
+    sim = cosine_similarity(paper_vecs, corpus_vecs)
+
+    highlights = []
+    for i, ps in enumerate(paper_sents):
+        best_idx = int(sim[i].argmax())
+        best_score = float(sim[i][best_idx])
+        if best_score >= threshold:
+            c = corpus_sents[best_idx]
+            highlights.append({
+                'index': i,
+                'sentence': ps,
+                'score': best_score,
+                'matched': c[0],
+                'matched_title': c[1],
+                'matched_source': c[2],
+            })
+    return highlights

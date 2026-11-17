@@ -16,4 +16,5 @@ gensim==4.3.2
 requests==2.31.0
 beautifulsoup4==4.12.2
 pdfkit==1.0.0
+reportlab>=3.6   # 服务端 PDF 生成（免 wkhtmltopdf）
 # nltk==3.8.1   # 如果需要 NLTK，取消注释

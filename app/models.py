@@ -53,3 +53,18 @@ class AlgorithmConfig(db.Model):
     name = db.Column(db.String(50), unique=True)
     threshold = db.Column(db.Float, default=0.5)
     params = db.Column(db.Text)  # JSON格式参数
+
+class ReferencePaper(db.Model):
+    """参考语料库：爬虫抓取 / 手动导入的文献，用于与用户上传论文做查重比对。"""
+    __tablename__ = 'reference_papers'
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(300), nullable=False)
+    source = db.Column(db.String(50), default='import')  # 'arxiv' / 'web' / 'user_import'
+    content_text = db.Column(db.Text)                     # 提取的纯文本
+    file_path = db.Column(db.String(400))
+    content_hash = db.Column(db.String(64), index=True)    # 用于去重
+    is_active = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def __repr__(self):
+        return f'<ReferencePaper {self.id} {self.title!r}>'

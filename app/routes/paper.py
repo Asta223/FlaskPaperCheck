@@ -15,6 +15,7 @@ from app.utils.similarity import (
     sentence_level_similarity,
     doc2vec_similarity,
     jaccard_similarity,
+    highlight_sentences,
     _get_sbert_model
 )
 
@@ -93,109 +94,107 @@ def upload():
         db.session.add(paper)
         db.session.commit()
 
-        # ========== 7. 获取语料库（排除当前论文 + 可选的排除自己） ==========
-        query = Paper.query.filter(Paper.id != paper.id)
+        # ========== 7. 构建查重语料库：用户论文 + 参考库 ==========
+        from app.models import ReferencePaper
+        user_query = Paper.query.filter(Paper.id != paper.id)
         # 如果用户未勾选“与自己的历史论文比对”，则排除自己
         if not form.compare_self.data:
-            query = query.filter(Paper.user_id != current_user.id)
-        corpus_papers = query.all()
-        corpus_texts = [p.content_text for p in corpus_papers if p.content_text]
+            user_query = user_query.filter(Paper.user_id != current_user.id)
+        user_papers = user_query.all()
+
+        corpus = []
+        for p in user_papers:
+            if p.content_text:
+                corpus.append({'id': p.id, 'title': p.title,
+                               'text': p.content_text, 'source': 'user'})
+        # 参考语料库（爬虫/导入的文献），让查重真正有“参照物”
+        if current_app.config.get('USE_REFERENCE_CORPUS', True):
+            for r in ReferencePaper.query.filter_by(is_active=True).all():
+                if r.content_text:
+                    corpus.append({'id': r.id, 'title': r.title,
+                                   'text': r.content_text, 'source': 'reference'})
+
+        corpus_texts = [c['text'] for c in corpus]
 
         threshold = form.threshold.data
         algo = form.algorithm.data
 
-        # ========== 8. 根据算法计算相似度（完整保留你的所有分支） ==========
+        # ========== 8. 根据算法计算相似度（语料库已统一为 corpus） ==========
         if corpus_texts:
-            if algo == 'tfidf':
-                sim_scores = tfidf_similarity(content, corpus_texts)
+            if algo in ('tfidf', 'jaccard'):
+                func = tfidf_similarity if algo == 'tfidf' else jaccard_similarity
+                sim_scores = func(content, corpus_texts)
                 max_sim = sim_scores.max() if sim_scores.size > 0 else 0.0
                 similar_list = [
-                    {'id': corpus_papers[i].id, 'title': corpus_papers[i].title, 'score': float(score)}
+                    {'id': corpus[i]['id'], 'title': corpus[i]['title'],
+                     'score': float(score), 'source': corpus[i]['source']}
                     for i, score in enumerate(sim_scores) if score > threshold
                 ]
-                details = {
-                    'similar_papers': similar_list,
-                    'algorithm': algo,
-                    'threshold': threshold
-                }
+                details = {'algorithm': algo, 'threshold': threshold,
+                           'corpus_size': len(corpus), 'similar_papers': similar_list}
 
             elif algo == 'bert':
                 sim_scores = sentence_bert_similarity(content, corpus_texts)
                 max_sim = sim_scores.max() if sim_scores.size > 0 else 0.0
                 similar_list = [
-                    {'id': corpus_papers[i].id, 'title': corpus_papers[i].title, 'score': float(score)}
+                    {'id': corpus[i]['id'], 'title': corpus[i]['title'],
+                     'score': float(score), 'source': corpus[i]['source']}
                     for i, score in enumerate(sim_scores) if score > threshold
                 ]
-                details = {
-                    'similar_papers': similar_list,
-                    'algorithm': algo,
-                    'threshold': threshold
-                }
-
-            elif algo == 'sentence_bert':
-                model = _get_sbert_model()
-                all_matches = []
-                max_sim = 0.0
-                for idx, cp in enumerate(corpus_papers):
-                    sim_score, matches = sentence_level_similarity(content, cp.content_text, model, threshold)
-                    if sim_score > max_sim:
-                        max_sim = sim_score
-                    if matches:
-                        all_matches.append({
-                            'paper_id': cp.id,
-                            'paper_title': cp.title,
-                            'score': sim_score,
-                            'matches': matches
-                        })
-                details = {
-                    'algorithm': algo,
-                    'threshold': threshold,
-                    'paper_matches': all_matches
-                }
+                details = {'algorithm': algo, 'threshold': threshold,
+                           'corpus_size': len(corpus), 'similar_papers': similar_list}
 
             elif algo == 'doc2vec':
                 model_path = current_app.config['DOC2VEC_MODEL_PATH']
                 sim_scores = doc2vec_similarity(content, corpus_texts, model_path)
                 max_sim = sim_scores.max() if sim_scores.size > 0 else 0.0
                 similar_list = [
-                    {'id': corpus_papers[i].id, 'title': corpus_papers[i].title, 'score': float(score)}
+                    {'id': corpus[i]['id'], 'title': corpus[i]['title'],
+                     'score': float(score), 'source': corpus[i]['source']}
                     for i, score in enumerate(sim_scores) if score > threshold
                 ]
-                details = {
-                    'similar_papers': similar_list,
-                    'algorithm': algo,
-                    'threshold': threshold
-                }
+                details = {'algorithm': algo, 'threshold': threshold,
+                           'corpus_size': len(corpus), 'similar_papers': similar_list}
 
-            elif algo == 'jaccard':
-                sim_scores = jaccard_similarity(content, corpus_texts)
-                max_sim = sim_scores.max() if sim_scores.size > 0 else 0.0
-                similar_list = [
-                    {'id': corpus_papers[i].id, 'title': corpus_papers[i].title, 'score': float(score)}
-                    for i, score in enumerate(sim_scores) if score > threshold
-                ]
-                details = {
-                    'similar_papers': similar_list,
-                    'algorithm': algo,
-                    'threshold': threshold
-                }
+            elif algo == 'sentence_bert':
+                model = _get_sbert_model()
+                all_matches = []
+                max_sim = 0.0
+                for item in corpus:
+                    sim_score, matches = sentence_level_similarity(
+                        content, item['text'], model, threshold)
+                    if sim_score > max_sim:
+                        max_sim = sim_score
+                    if matches:
+                        all_matches.append({
+                            'id': item['id'],
+                            'paper_title': item['title'],
+                            'score': sim_score,
+                            'source': item['source'],
+                            'matches': matches
+                        })
+                details = {'algorithm': algo, 'threshold': threshold,
+                           'corpus_size': len(corpus), 'paper_matches': all_matches}
 
             else:
                 # 默认 TF-IDF
                 sim_scores = tfidf_similarity(content, corpus_texts)
                 max_sim = sim_scores.max() if sim_scores.size > 0 else 0.0
                 similar_list = [
-                    {'id': corpus_papers[i].id, 'title': corpus_papers[i].title, 'score': float(score)}
+                    {'id': corpus[i]['id'], 'title': corpus[i]['title'],
+                     'score': float(score), 'source': corpus[i]['source']}
                     for i, score in enumerate(sim_scores) if score > threshold
                 ]
-                details = {
-                    'similar_papers': similar_list,
-                    'algorithm': 'tfidf',
-                    'threshold': threshold
-                }
+                details = {'algorithm': 'tfidf', 'threshold': threshold,
+                           'corpus_size': len(corpus), 'similar_papers': similar_list}
         else:
             max_sim = 0.0
-            details = {'algorithm': algo, 'threshold': threshold}
+            details = {'algorithm': algo, 'threshold': threshold, 'corpus_size': 0}
+
+        # ========== 8.5 句子级高亮（所有算法通用，基于 TF-IDF 句子余弦） ==========
+        highlights = highlight_sentences(content, corpus, threshold)
+        details['highlights'] = highlights
+        details['highlight_count'] = len(highlights)
 
         # ========== 9. 保存查重记录 ==========
         record = CheckRecord(
@@ -210,7 +209,11 @@ def upload():
         flash('查重完成！', 'success')
         return redirect(url_for('paper.result', record_id=record.id))
 
-    return render_template('upload.html', form=form)
+    reference_count = 0
+    if current_app.config.get('USE_REFERENCE_CORPUS', True):
+        from app.models import ReferencePaper
+        reference_count = ReferencePaper.query.filter_by(is_active=True).count()
+    return render_template('upload.html', form=form, reference_count=reference_count)
 
 @bp.route('/result/<int:record_id>')
 @login_required
@@ -219,27 +222,54 @@ def result(record_id):
     if record.paper.user_id != current_user.id:
         flash('无权访问', 'danger')
         return redirect(url_for('main.index'))
-    return render_template('result.html', record=record)
+    # 构建全文高亮视图（按句拆分，标记疑似相似句）
+    highlight_view = None
+    details = record.get_details()
+    highlights = details.get('highlights') or []
+    if highlights:
+        from app.utils.text_preprocess import split_sentences
+        sents = split_sentences(record.paper.content_text or '')
+        idx_set = {int(h['index']) for h in highlights}
+        highlight_view = [(i, s, i in idx_set) for i, s in enumerate(sents)]
+    return render_template('result.html', record=record, highlight_view=highlight_view)
 
 @bp.route('/export/<int:record_id>')
 @login_required
-def export_pdf(record_id):
+def export(record_id):
+    """导出查重报告，支持 ?format=pdf(默认) / docx / html，均不依赖 wkhtmltopdf。"""
     record = CheckRecord.query.get_or_404(record_id)
     if record.paper.user_id != current_user.id:
         abort(403)
-    try:
-        import pdfkit
-    except ImportError:
-        flash('PDF导出功能未安装', 'danger')
-        return redirect(url_for('paper.result', record_id=record_id))
+    fmt = (request.args.get('format') or 'pdf').lower()
 
-    rendered = render_template('report_pdf.html', record=record)
-    options = {'page-size': 'A4', 'encoding': 'UTF-8'}
-    # 如果 wkhtmltopdf 不在 PATH，需指定路径
-    # config = pdfkit.configuration(wkhtmltopdf=r'C:\Program Files\wkhtmltopdf\bin\wkhtmltopdf.exe')
-    # pdf = pdfkit.from_string(rendered, False, options=options, configuration=config)
-    pdf = pdfkit.from_string(rendered, False, options=options)
-    response = make_response(pdf)
-    response.headers['Content-Type'] = 'application/pdf'
-    response.headers['Content-Disposition'] = f'attachment; filename=report_{record_id}.pdf'
-    return response
+    if fmt == 'docx':
+        from app.utils.report import build_docx
+        data = build_docx(record)
+        resp = make_response(data)
+        resp.headers['Content-Type'] = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        resp.headers['Content-Disposition'] = f'attachment; filename=report_{record_id}.docx'
+        return resp
+
+    if fmt == 'html':
+        rendered = render_template('report_pdf.html', record=record)
+        resp = make_response(rendered)
+        resp.headers['Content-Type'] = 'text/html; charset=utf-8'
+        resp.headers['Content-Disposition'] = f'attachment; filename=report_{record_id}.html'
+        return resp
+
+    # 默认 PDF：优先用 reportlab（无需外部二进制）
+    try:
+        from app.utils.report import build_pdf
+        data = build_pdf(record)
+        resp = make_response(data)
+        resp.headers['Content-Type'] = 'application/pdf'
+        resp.headers['Content-Disposition'] = f'attachment; filename=report_{record_id}.pdf'
+        return resp
+    except Exception as e:
+        current_app.logger.error(f"PDF 生成失败: {e}", exc_info=True)
+        flash('PDF 生成失败，已改为导出 HTML（可用浏览器打印为 PDF）', 'warning')
+        rendered = render_template('report_pdf.html', record=record)
+        resp = make_response(rendered)
+        resp.headers['Content-Type'] = 'text/html; charset=utf-8'
+        resp.headers['Content-Disposition'] = f'attachment; filename=report_{record_id}.html'
+        return resp

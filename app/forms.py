@@ -35,7 +35,10 @@ class UploadForm(FlaskForm):
         if not field.data:
             raise ValidationError('未选择文件')
         filename = field.data.filename
-        print(f"原始文件名: {repr(filename)}")  # 这行会打印到 PyCharm 控制台
         ext = os.path.splitext(filename)[1].lower()
-        if ext not in ['.pdf', '.doc', '.docx', '.txt']:
-            raise ValidationError(f'不支持的文件格式（检测到扩展名: {ext}）')
+        # 仅支持 .pdf / .docx / .txt；旧版 .doc 暂不支持，统一引导用户转存
+        allowed = {'.pdf', '.docx', '.txt'}
+        if ext not in allowed:
+            if ext == '.doc':
+                raise ValidationError('暂不支持旧版 .doc 格式，请用 Word 另存为 .docx 或导出为 PDF 后上传')
+            raise ValidationError(f'不支持的文件格式：{ext}（仅支持 .pdf / .docx / .txt）')

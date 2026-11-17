@@ -34,6 +34,14 @@
         {{ form.threshold(class="form-control", step="0.01") }}
         <div class="form-text">相似度阈值，高于此值的课程报告才会在结果中列出。</div>
     </div>
+    <div class="alert alert-info py-2">
+        {% if reference_count > 0 %}
+            当前参考语料库共 <strong>{{ reference_count }}</strong> 篇文献，将与你的报告一并比对。
+        {% else %}
+            参考语料库暂为空（运行 <code>services/seed_corpus.py</code> 导入），查重仅基于已上传报告。
+        {% endif %}
+        <br>支持格式：<strong>.pdf / .docx / .txt</strong>（旧版 .doc 请另存为 .docx 或导出 PDF）。
+    </div>
     <div class="mb-3 form-check">
         {{ form.compare_self(class="form-check-input") }}
         {{ form.compare_self.label(class="form-check-label") }}
