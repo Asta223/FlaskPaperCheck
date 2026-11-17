@@ -86,7 +86,7 @@ class TestQAExport:
         att_rows = list(csv.reader(io.StringIO(att.data.decode('utf-8-sig'))))
         inv_rows = list(csv.reader(io.StringIO(inv.data.decode('utf-8-sig'))))
         assert att_rows[0] == ['部门', '姓名', '日期', '签到', '签退', '状态', '迟到分钟', '早退分钟']
-        assert inv_rows[0] == ['仓库', '物料', '编码', '规格', '数量', '阈值', '状态']
+        assert inv_rows[0] == ['仓库', '物料', '编码', '规格', '存放位置', '数量', '阈值', '状态']
         assert OperationLog.query.filter_by(module='attendance', action='export').count() >= 1
         assert OperationLog.query.filter_by(module='warehouse', action='export').count() >= 1
 

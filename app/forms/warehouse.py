@@ -15,7 +15,8 @@ def fill_warehouse_doc_choices(form) -> None:
         (w.id, w.name) for w in Warehouse.query.filter_by(is_active=True).order_by(Warehouse.id).all()
     ]
     form.material_id.choices = [
-        (m.id, '%s（%s）' % (m.name, m.code))
+        (m.id, '%s（%s）%s' % (m.name, m.code,
+                              ('【库位：%s】' % m.storage_location) if m.storage_location else ''))
         for m in Material.query.filter_by(is_active=True).order_by(Material.code).all()
     ]
     open_orders = WorkOrder.query.filter(WorkOrder.status.in_(['pending', 'in_progress'])) \

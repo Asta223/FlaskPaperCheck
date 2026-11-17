@@ -24,13 +24,18 @@ bp = Blueprint('warehouse', __name__, url_prefix='/warehouse')
 @login_required
 @permission_required('warehouse.manage')
 def warehouse_list():
-    """仓库档案列表 + 新增/编辑。"""
+    """仓库档案列表 + 新增/编辑：支持按名称/位置搜索。"""
     edit_id = request.args.get('edit_id', type=int)
+    keyword = (request.args.get('keyword') or '').strip()
     warehouse = db.session.get(Warehouse, edit_id) if edit_id else None
     form = WarehouseForm(obj=warehouse) if warehouse else WarehouseForm()
-    warehouses = Warehouse.query.order_by(Warehouse.id).all()
+    query = Warehouse.query
+    if keyword:
+        like = '%%%s%%' % keyword
+        query = query.filter((Warehouse.name.like(like)) | (Warehouse.location.like(like)))
+    warehouses = query.order_by(Warehouse.is_active.desc(), Warehouse.id).all()
     return render_template('warehouse/warehouse_list.html', form=form, warehouse=warehouse,
-                           warehouses=warehouses)
+                           warehouses=warehouses, keyword=keyword)
 
 
 @bp.route('/warehouses/new', methods=['POST'])
@@ -43,8 +48,11 @@ def warehouse_new():
         if Warehouse.query.filter_by(name=form.name.data.strip()).first():
             flash('仓库名称已存在', 'danger')
             return redirect(url_for('warehouse.warehouse_list'))
-        db.session.add(Warehouse(name=form.name.data.strip(),
-                                 location=form.location.data or ''))
+        wh = Warehouse(name=form.name.data.strip(), location=form.location.data or '')
+        db.session.add(wh)
+        db.session.flush()
+        log_operation(module='warehouse', action='create', target_type='warehouse',
+                      target_id=wh.id, summary='创建仓库 %s' % wh.name)
         db.session.commit()
         flash('仓库创建成功', 'success')
     else:
@@ -67,6 +75,8 @@ def warehouse_edit(warehouse_id):
             return redirect(url_for('warehouse.warehouse_list', edit_id=warehouse.id))
         warehouse.name = form.name.data.strip()
         warehouse.location = form.location.data or ''
+        log_operation(module='warehouse', action='update', target_type='warehouse',
+                      target_id=warehouse.id, summary='编辑仓库 %s' % warehouse.name)
         db.session.commit()
         flash('仓库已保存', 'success')
     else:
@@ -74,19 +84,54 @@ def warehouse_edit(warehouse_id):
     return redirect(url_for('warehouse.warehouse_list'))
 
 
+@bp.route('/warehouses/<int:warehouse_id>/toggle', methods=['POST'])
+@login_required
+@permission_required('warehouse.manage')
+def warehouse_toggle(warehouse_id):
+    """停用/启用仓库（软删可逆）：存在数量>0 的库存时禁止停用。"""
+    warehouse = db.get_or_404(Warehouse, warehouse_id)
+    if warehouse.is_active:
+        nonempty = [inv for inv in warehouse.inventories if (inv.quantity or 0) > 0]
+        if nonempty:
+            flash('该仓库下存在有库存的物料，无法停用（请先出库）', 'danger')
+            return redirect(url_for('warehouse.warehouse_list'))
+        warehouse.is_active = False
+        msg, cat = '仓库「%s」已停用（可随时恢复）' % warehouse.name, 'warning'
+    else:
+        # 恢复时若同名仓库已存在则拒绝（唯一约束）
+        if Warehouse.query.filter(Warehouse.name == warehouse.name,
+                                   Warehouse.id != warehouse.id).first():
+            flash('存在同名仓库，无法恢复', 'danger')
+            return redirect(url_for('warehouse.warehouse_list'))
+        warehouse.is_active = True
+        msg, cat = '仓库「%s」已恢复启用' % warehouse.name, 'success'
+    log_operation(module='warehouse', action='update', target_type='warehouse',
+                  target_id=warehouse.id, summary=msg)
+    db.session.commit()
+    flash(msg, cat)
+    return redirect(url_for('warehouse.warehouse_list'))
+
+
 @bp.route('/warehouses/<int:warehouse_id>/delete', methods=['POST'])
 @login_required
 @permission_required('warehouse.manage')
 def warehouse_delete(warehouse_id):
-    """停用仓库（软删）：存在数量>0 的库存时拒绝。"""
+    """彻底删除仓库（物理删）：仅当无任何库存记录且无出入库单据/流水时允许。"""
     warehouse = db.get_or_404(Warehouse, warehouse_id)
-    nonempty = [inv for inv in warehouse.inventories if (inv.quantity or 0) > 0]
-    if nonempty:
-        flash('该仓库下存在有库存的物料，无法停用', 'danger')
+    if warehouse.inventories:
+        flash('该仓库仍存在库存记录，不能彻底删除（可先停用）', 'danger')
         return redirect(url_for('warehouse.warehouse_list'))
-    warehouse.is_active = False
+    if StockDocument.query.filter_by(warehouse_id=warehouse.id).first():
+        flash('该仓库存在出入库单据历史，不能彻底删除（可先停用）', 'danger')
+        return redirect(url_for('warehouse.warehouse_list'))
+    from app.models.ledger import StockLedger
+    if StockLedger.query.filter_by(warehouse_id=warehouse.id).first():
+        flash('该仓库存在库存流水历史，不能彻底删除（可先停用）', 'danger')
+        return redirect(url_for('warehouse.warehouse_list'))
+    name = warehouse.name
+    db.session.delete(warehouse)
     db.session.commit()
-    flash('仓库已停用', 'warning')
+    flash('仓库「%s」已彻底删除' % name, 'warning')
     return redirect(url_for('warehouse.warehouse_list'))
 
 
@@ -255,6 +300,7 @@ def export_inventory_csv():
             mat.name if mat else '',
             mat.code if mat else '',
             mat.spec if mat else '',
+            mat.storage_location if mat else '',
             inv.quantity,
             inv.warn_threshold,
             '预警' if inv.is_warning else '正常',
@@ -268,7 +314,7 @@ def export_inventory_csv():
     log_operation(module='warehouse', action='export', target_type='inventory',
                   summary='导出库存 wh=%s kw=%s，共%d行' % (warehouse_id or '全部', keyword, len(rows)))
     db.session.commit()
-    return _export_csv(['仓库', '物料', '编码', '规格', '数量', '阈值', '状态'],
+    return _export_csv(['仓库', '物料', '编码', '规格', '存放位置', '数量', '阈值', '状态'],
                        rows, 'inventory')
 
 

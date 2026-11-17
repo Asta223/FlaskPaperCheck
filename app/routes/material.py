@@ -94,7 +94,8 @@ def material_list():
         query = query.filter(Material.category_id == cat_id)
     if keyword:
         like = '%%%s%%' % keyword
-        query = query.filter((Material.name.like(like)) | (Material.code.like(like)))
+        query = query.filter((Material.name.like(like)) | (Material.code.like(like)) |
+                             (Material.storage_location.like(like)))
     pagination = query.order_by(Material.code).paginate(page=page, per_page=20, error_out=False)
     cats = MaterialCategory.query.filter_by(is_active=True).order_by(MaterialCategory.id).all()
     return render_template('material/material_list.html', pagination=pagination, cat_id=cat_id,
@@ -117,6 +118,7 @@ def material_new():
             name=form.name.data.strip(),
             spec=form.spec.data or '',
             unit=form.unit.data.strip(),
+            storage_location=form.storage_location.data or '',
             category_id=form.category_id.data or None,
         ))
         db.session.commit()
@@ -144,6 +146,7 @@ def material_edit(material_id):
         material.name = form.name.data.strip()
         material.spec = form.spec.data or ''
         material.unit = form.unit.data.strip()
+        material.storage_location = form.storage_location.data or ''
         material.category_id = form.category_id.data or None
         db.session.commit()
         flash('物料已保存', 'success')

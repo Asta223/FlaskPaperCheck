@@ -48,7 +48,20 @@
 
 ---
 
+## P2-2 追加需求（仓库自定义 + 物料库位）
+
+| 编号 | 需求 | 实现 |
+|---|---|---|
+| P2-05 | 仓库档案允许增删查改（不同厂区仓库不同，用户自定义） | 仓库档案补**可逆停用/启用**（`warehouse_toggle`，有库存>0 禁止停用）、**严格条件下彻底删除**（无库存记录、无出入库单据、无流水才允许物理删）、**按名称/位置搜索**；新建/编辑/停用/删除全部记操作日志 |
+| P2-06 | 物料档案记录存放仓位/货位，便于出入库 | `Material.storage_location`（String128）单字段记录「什么仓库的什么货位」；物料新建/编辑可录入，列表/筛选可见；**出入库单据与工单领料的物料下拉直接带出【库位：…】提示**；库存查询页与库存 CSV 导出增加库位列 |
+
+设计取舍：库位采用物料档案上的单一文本字段（如「原材料仓 A区-03排-2层」），不建独立库位表、不做仓库×物料多维关联——符合小型工厂"线上留痕、不搞复杂"定位，避免与库存维度冗余。
+
+相关文件：`app/models/material.py`、`app/forms/material.py`、`app/forms/warehouse.py`、`app/forms/production.py`、`app/routes/material.py`、`app/routes/warehouse.py`、`app/templates/material/*`、`app/templates/warehouse/*`、`migrations/versions/c3d4e5f6a7b8_material_storage_location.py`。
+
+---
+
 ## 验证
 
-- 自动化测试：新增 `tests/test_p2_production.py`（15 项），全量 **228 passed**（P0/P1/QA + P2）。
-- 端到端实测（MySQL `FactoryManagementSystem` 库）：工序档案页 200、工单详情下拉渲染、18 条历史步骤绑定成功、余量 API 返回正确、工时修正落库、全链路无异常。
+- 自动化测试：P2-1 `tests/test_p2_production.py`（15 项）、P2-2 `tests/test_p2_warehouse_material.py`（10 项），全量 **238 passed**（P0/P1/QA/P2）。
+- 端到端实测（MySQL `FactoryManagementSystem` 库）：工序页、下拉、余量 API、工时修正；仓库搜索/切换、物料库位列表/下拉带出/库存导出，全部通过。

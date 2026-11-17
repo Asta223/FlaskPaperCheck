@@ -17,7 +17,7 @@
                 </select>
             </div>
             <div class="col-md-3">
-                <input class="form-control" type="text" name="keyword" value="{{ keyword }}" placeholder="名称 / 编码">
+                <input class="form-control" type="text" name="keyword" value="{{ keyword }}" placeholder="名称 / 编码 / 存放位置">
             </div>
             <div class="col-auto">
                 <button class="btn btn-outline-primary" type="submit"><i class="bi bi-search"></i> 搜索</button>
@@ -26,7 +26,7 @@
         <div class="table-responsive">
             <table class="table table-hover align-middle mb-0">
                 <thead class="table-light">
-                <tr><th>编码</th><th>名称</th><th>规格</th><th>单位</th><th>分类</th><th>状态</th><th class="text-end">操作</th></tr>
+                <tr><th>编码</th><th>名称</th><th>规格</th><th>单位</th><th>存放位置（仓位/货位）</th><th>分类</th><th>状态</th><th class="text-end">操作</th></tr>
                 </thead>
                 <tbody>
                 {% for material in pagination.items %}
@@ -35,6 +35,7 @@
                         <td>{{ material.name }}</td>
                         <td>{{ material.spec or '-' }}</td>
                         <td>{{ material.unit }}</td>
+                        <td>{% if material.storage_location %}<span class="badge bg-light text-dark border"><i class="bi bi-geo-alt"></i> {{ material.storage_location }}</span>{% else %}<span class="text-muted">-</span>{% endif %}</td>
                         <td>{{ material.category.name if material.category else '-' }}</td>
                         <td>
                             {% if material.is_active %}<span class="badge bg-success">启用</span>
@@ -52,7 +53,7 @@
                         </td>
                     </tr>
                 {% else %}
-                    <tr><td colspan="7" class="text-center text-muted py-4">暂无物料</td></tr>
+                    <tr><td colspan="8" class="text-center text-muted py-4">暂无物料</td></tr>
                 {% endfor %}
                 </tbody>
             </table>

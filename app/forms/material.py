@@ -39,5 +39,6 @@ class MaterialForm(FlaskForm):
     name = StringField('物料名称', validators=[DataRequired(message='请输入物料名称'), Length(max=128)])
     spec = StringField('规格', validators=[Optional(), Length(max=128)])
     unit = StringField('单位', validators=[DataRequired(message='请输入单位'), Length(max=16)])
+    storage_location = StringField('存放位置', validators=[Optional(), Length(max=128)])
     category_id = SelectField('分类', coerce=int, validators=[Optional()])
     submit = SubmitField('保存')

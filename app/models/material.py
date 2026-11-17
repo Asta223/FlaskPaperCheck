@@ -27,6 +27,8 @@ class Material(db.Model):
     name = db.Column(db.String(128), nullable=False, comment='物料名称')
     spec = db.Column(db.String(128), nullable=False, default='', comment='规格')
     unit = db.Column(db.String(16), nullable=False, default='个', comment='单位')
+    storage_location = db.Column(db.String(128), nullable=False, default='',
+                                 comment='存放位置（仓位/货位），如「原材料仓 A区-03排-2层」')
     category_id = db.Column(db.Integer, db.ForeignKey('material_categories.id'), nullable=True,
                             comment='分类，可空')
     is_active = db.Column(db.Boolean, nullable=False, default=True, comment='停用=软删')
