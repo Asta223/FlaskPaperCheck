@@ -6,7 +6,6 @@ from app import db
 from app.forms.material import MaterialCategoryForm, MaterialForm, \
     fill_material_category_choices, fill_material_choices
 from app.models.material import Material, MaterialCategory
-from app.services.log_service import log_operation
 from app.services.soft_delete_service import mark_deleted
 from app.utils.delete_guard import find_references, format_references
 from app.utils.permissions import permission_required
