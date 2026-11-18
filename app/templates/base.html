@@ -96,8 +96,7 @@
                     if (json && json.code === 0) {
                         var badge = document.getElementById('chatBadge');
                         if (!badge) { return; }
-                        // P1 角标 = 聊天未读 + 库存预警未读（服务端聚合 total）
-                        var n = json.data.total != null ? json.data.total : (json.data.count || 0);
+                        var n = json.data.count || 0;
                         badge.textContent = n > 99 ? '99+' : String(n);
                         badge.classList.toggle('d-none', n === 0);
                     }

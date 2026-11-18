@@ -20,11 +20,6 @@
             {% endif %}
             <a class="btn btn-outline-primary" href="{{ url_for('production.order_edit', order_id=order.id) }}">编辑</a>
         {% endif %}
-        {% if 'production.issue' in current_user|perm_codes and can_issue %}
-            <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#issueModal">
-                <i class="bi bi-box-arrow-left"></i> 领料
-            </button>
-        {% endif %}
         <a class="btn btn-outline-secondary" href="{{ url_for('production.order_list') }}">返回</a>
     </div>
 </div>
@@ -117,73 +112,4 @@
         {% endif %}
     </div>
 </div>
-
-<!-- 物料领用区（P1-05/P1-08）-->
-<div class="card shadow-sm mt-3">
-    <div class="card-header bg-white"><i class="bi bi-box-seam"></i> 物料领用（关联出库单）</div>
-    <div class="card-body p-0">
-        <table class="table table-hover mb-0 align-middle">
-            <thead class="table-light"><tr><th>单据号</th><th>物料</th><th>仓库</th><th>数量</th><th>经手人</th><th>时间</th></tr></thead>
-            <tbody>
-            {% for doc in issue_docs %}
-                <tr>
-                    <td><a href="{{ url_for('warehouse.doc_list') }}">{{ doc.doc_no }}</a></td>
-                    <td>{{ doc.material.name if doc.material else '-' }}</td>
-                    <td>{{ doc.warehouse.name if doc.warehouse else '-' }}</td>
-                    <td>{{ doc.quantity }}</td>
-                    <td>{{ doc.handler.display_name() if doc.handler else '-' }}</td>
-                    <td>{{ doc.created_at | fmt_dt }}</td>
-                </tr>
-            {% else %}
-                <tr><td colspan="6" class="text-center text-muted py-3">暂无领料记录</td></tr>
-            {% endfor %}
-            </tbody>
-        </table>
-    </div>
-</div>
-
-<!-- 操作日志页签（P1-06，复用 OperationLog）-->
-<div class="card shadow-sm mt-3">
-    <div class="card-header bg-white"><i class="bi bi-clock-history"></i> 操作日志</div>
-    <div class="card-body p-0">
-        <ul class="list-group list-group-flush">
-            {% for log in op_logs %}
-                <li class="list-group-item d-flex justify-content-between align-items-center px-3">
-                    <div>
-                        <span class="badge bg-secondary">{{ log.action_label }}</span>
-                        {{ log.summary }}
-                    </div>
-                    <div class="text-muted small">{{ log.operator_name }} · {{ log.created_at | fmt_dt }}</div>
-                </li>
-            {% else %}
-                <li class="list-group-item text-center text-muted py-3">暂无操作记录</li>
-            {% endfor %}
-        </ul>
-    </div>
-</div>
-
-<!-- 领料弹窗（P1-05）-->
-{% if 'production.issue' in current_user|perm_codes and can_issue %}
-<div class="modal fade" id="issueModal" tabindex="-1" aria-labelledby="issueModalLabel" aria-hidden="true">
-  <div class="modal-dialog">
-    <div class="modal-content">
-      <form method="POST" action="{{ url_for('production.order_issue', order_id=order.id) }}">
-        {{ issue_form.hidden_tag() }}
-        <div class="modal-header"><h5 class="modal-title" id="issueModalLabel">工单领料</h5>
-            <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
-        <div class="modal-body">
-            <div class="mb-3"><label class="form-label">仓库</label>{{ issue_form.warehouse_id(class='form-select') }}</div>
-            <div class="mb-3"><label class="form-label">物料</label>{{ issue_form.material_id(class='form-select') }}</div>
-            <div class="mb-3"><label class="form-label">数量</label>{{ issue_form.quantity(class='form-control', type='number', min=1) }}</div>
-            <div class="mb-3"><label class="form-label">备注</label>{{ issue_form.remark(class='form-control') }}</div>
-        </div>
-        <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
-            {{ issue_form.submit(class='btn btn-success') }}
-        </div>
-      </form>
-    </div>
-  </div>
-</div>
-{% endif %}
 {% endblock %}

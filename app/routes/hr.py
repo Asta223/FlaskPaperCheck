@@ -20,8 +20,7 @@ bp = Blueprint('hr', __name__, url_prefix='/hr')
 
 def base_employee_query():
     """员工列表统一查询出口（P1 数据权限只改此处）。"""
-    from app.utils.data_scope import apply_dept_scope
-    return apply_dept_scope(User.query, User.department_id, current_user)
+    return User.query
 
 
 # ---------------- 员工管理 ----------------
@@ -51,47 +50,6 @@ def employee_list():
         dept_id=dept_id,
         keyword=keyword,
     )
-
-
-@bp.route('/employees/export.csv')
-@login_required
-@permission_required('system.export')
-def employee_export_csv():
-    """导出当前筛选员工 CSV（P1-16）：复用 base_employee_query + 数据权限，无密码哈希。"""
-    from app.services.export_service import export_csv as _export_csv, guard_export_or_redirect
-    from app.services.log_service import log_operation
-
-    dept_id = request.args.get('dept_id', type=int)
-    keyword = (request.args.get('keyword') or '').strip()
-
-    query = base_employee_query()
-    if dept_id:
-        # 数据权限：注入出口后，非管辖 dept_id 自然收窄为空
-        query = query.filter(User.department_id == dept_id)
-    if keyword:
-        like = '%%%s%%' % keyword
-        query = query.filter(or_(User.name.like(like), User.username.like(like),
-                                 User.employee_no.like(like)))
-    users = query.order_by(User.employee_no).all()
-
-    rows = []
-    for u in users:
-        rows.append([
-            u.employee_no, u.name,
-            u.department.name if u.department else '',
-            u.position or '', u.phone or '', u.email or '',
-            '在职' if u.is_active else '离职',
-        ])
-    guard = guard_export_or_redirect(rows, 'hr.employee_list', dept_id=dept_id or 0,
-                                     keyword=keyword)
-    if guard is not None:
-        return guard
-
-    log_operation(module='hr', action='export', target_type='employee',
-                  summary='导出员工 dept=%s kw=%s，共%d行' % (dept_id or '全部', keyword, len(rows)))
-    db.session.commit()
-    return _export_csv(['工号', '姓名', '部门', '岗位', '手机', '邮箱', '状态'],
-                       rows, 'employees')
 
 
 def _validate_unique(form, user=None) -> bool:

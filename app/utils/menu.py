@@ -2,14 +2,7 @@
 
 约定（架构文档共享知识 §3）：新增菜单项只改 MENU_REGISTRY，不改 base.html。
 """
-from flask import current_app
-
 from app.utils.permissions import has_permission
-
-
-def _endpoint_available(endpoint: str) -> bool:
-    """endpoint 是否已注册（防止分阶段上线/蓝图缺失导致 url_for 断链）。"""
-    return bool(endpoint) and endpoint in current_app.view_functions
 
 # 菜单结构：{'name','icon','endpoint','permission'} 或 {'name','icon','children':[...]}
 MENU_REGISTRY = [
@@ -36,9 +29,6 @@ MENU_REGISTRY = [
             {'name': '考勤打卡', 'endpoint': 'attendance.clock', 'permission': 'attendance.clock'},
             {'name': '打卡记录', 'endpoint': 'attendance.records', 'permission': 'attendance.view'},
             {'name': '月度统计', 'endpoint': 'attendance.monthly', 'permission': 'attendance.view'},
-            {'name': '请假申请', 'endpoint': 'attendance.leave_new', 'permission': 'attendance.leave.apply'},
-            {'name': '我的请假', 'endpoint': 'attendance.leave_list', 'permission': 'attendance.leave.apply'},
-            {'name': '待我审批', 'endpoint': 'attendance.leave_approvals', 'permission': 'attendance.leave.approve'},
         ],
     },
     {
@@ -58,7 +48,6 @@ MENU_REGISTRY = [
             {'name': '仓库档案', 'endpoint': 'warehouse.warehouse_list', 'permission': 'warehouse.manage'},
             {'name': '出入库单据', 'endpoint': 'warehouse.doc_list', 'permission': 'warehouse.manage'},
             {'name': '库存查询', 'endpoint': 'warehouse.inventory', 'permission': 'warehouse.view'},
-            {'name': '库存流水', 'endpoint': 'warehouse.ledger', 'permission': 'warehouse.ledger.view'},
         ],
     },
     {
@@ -74,13 +63,6 @@ MENU_REGISTRY = [
         'endpoint': 'chat.index',
         'permission': None,
     },
-    {
-        'name': '系统管理',
-        'icon': 'bi-gear',
-        'children': [
-            {'name': '操作日志', 'endpoint': 'system.operation_logs', 'permission': 'system.log.view'},
-        ],
-    },
 ]
 
 
@@ -92,8 +74,7 @@ def get_current_menu(user) -> list:
         if children is not None:
             visible = [
                 dict(sub) for sub in children
-                if _endpoint_available(sub.get('endpoint'))
-                and (not sub.get('permission') or has_permission(user, sub['permission']))
+                if not sub.get('permission') or has_permission(user, sub['permission'])
             ]
             if visible:
                 entry = {k: v for k, v in item.items() if k != 'children'}
@@ -101,7 +82,6 @@ def get_current_menu(user) -> list:
                 result.append(entry)
         else:
             perm = item.get('permission')
-            if _endpoint_available(item.get('endpoint')) and (
-                    not perm or has_permission(user, perm)):
+            if not perm or has_permission(user, perm):
                 result.append(dict(item))
     return result

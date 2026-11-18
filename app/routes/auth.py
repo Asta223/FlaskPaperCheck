@@ -22,13 +22,6 @@ def login():
                 flash('账号已停用，请联系管理员', 'danger')
                 return render_template('login.html', form=form)
             login_user(user, remember=True)
-            # P1-15：登录成功写操作日志（显式传 operator_id，此时登录态刚建立）
-            from app.services.log_service import log_operation
-            log_operation(module='auth', action='login', target_type='user',
-                          target_id=user.id,
-                          summary='%s 登录成功' % user.display_name(),
-                          operator_id=user.id)
-            db.session.commit()
             next_page = request.args.get('next')
             # 开放重定向防护：仅允许本站相对路径（拒绝 //evil.com、/\evil.com、绝对 URL）
             if (not next_page

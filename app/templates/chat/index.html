@@ -55,13 +55,7 @@
             </div>
             {% if peer %}
                 <div class="card-body p-0">
-                    <div class="chat-box p-3" id="chatBox" data-peer-id="{{ peer.id }}" data-last-id="{{ last_id }}"
-                         data-earliest-id="{{ earliest_id }}" data-has-more="{{ '1' if has_more else '0' }}">
-                        <div class="text-center mb-2" id="loadMoreWrap" {% if not has_more %}style="display:none;"{% endif %}>
-                            <button class="btn btn-sm btn-outline-secondary" id="loadMoreBtn">加载更早消息</button>
-                            <span class="text-muted small" id="noMoreTip" style="display:none;">没有更多消息</span>
-                        </div>
-                        <div id="olderMsgs"></div>
+                    <div class="chat-box p-3" id="chatBox" data-peer-id="{{ peer.id }}" data-last-id="{{ last_id }}">
                         {% for msg in messages %}
                             {% set mine = msg.sender_id == current_user.id %}
                             <div class="bubble {{ 'me' if mine else 'peer' }}">
@@ -132,50 +126,6 @@
         }
         setInterval(poll, 5000);
         box.scrollTop = box.scrollHeight;
-
-        // P1-13：加载更早消息（before_id），追加到顶部并保持滚动位置
-        var earliestId = parseInt(box.dataset.earliestId, 10) || 0;
-        var hasMore = box.dataset.hasMore === '1';
-        var loadBtn = document.getElementById('loadMoreBtn');
-        var noMoreTip = document.getElementById('noMoreTip');
-        var olderWrap = document.getElementById('olderMsgs');
-
-        function prependMessage(msg) {
-            var mine = msg.sender_id === {{ current_user.id }};
-            var div = document.createElement('div');
-            div.className = 'bubble ' + (mine ? 'me' : 'peer');
-            var span = document.createElement('span');
-            span.className = 'time';
-            span.textContent = msg.created_at + ' · ' + msg.sender_name;
-            div.appendChild(document.createTextNode(msg.content));
-            div.appendChild(span);
-            olderWrap.appendChild(div);
-        }
-
-        if (loadBtn) {
-            loadBtn.addEventListener('click', function () {
-                if (!hasMore || !earliestId) return;
-                var oldHeight = box.scrollHeight;
-                var oldTop = box.scrollTop;
-                fetch('/chat/api/messages?peer_id=' + peerId + '&before_id=' + earliestId + '&limit=20')
-                    .then(function (r) { return r.json(); })
-                    .then(function (json) {
-                        if (json && json.code === 0) {
-                            var msgs = json.data.messages;
-                            // 接口按时间升序返回，追加到顶部需逆序插入
-                            msgs.slice().reverse().forEach(prependMessage);
-                            if (msgs.length) { earliestId = json.data.earliest_id; }
-                            hasMore = json.data.has_more;
-                            box.scrollTop = oldTop + (box.scrollHeight - oldHeight);
-                            if (!hasMore) {
-                                loadBtn.style.display = 'none';
-                                if (noMoreTip) noMoreTip.style.display = '';
-                            }
-                        }
-                    })
-                    .catch(function () { /* 忽略 */ });
-            });
-        }
 
         // Enter 发送 / Ctrl+Enter 换行
         var input = document.getElementById('chatInput');

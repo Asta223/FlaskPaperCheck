@@ -30,14 +30,10 @@ PERMISSION_REGISTRY = {
         'attendance.clock': '考勤打卡',
         'attendance.view': '考勤查看',
         'attendance.view_all': '考勤查看全部',
-        'attendance.leave.apply': '请假申请',
-        'attendance.leave.approve': '请假审批',
-        'attendance.summary.view': '部门考勤汇总',
     },
     '生产管理': {
         'production.view': '工单查看',
         'production.manage': '工单管理',
-        'production.issue': '工单领料',
     },
     '物料管理': {
         'material.manage': '物料管理',
@@ -45,15 +41,10 @@ PERMISSION_REGISTRY = {
     '仓库管理': {
         'warehouse.view': '库存查看',
         'warehouse.manage': '出入库管理',
-        'warehouse.ledger.view': '库存流水查询',
     },
     '文件管理': {
         'files.view': '文件查看',
         'files.manage': '文件管理',
-    },
-    '系统管理': {
-        'system.log.view': '操作日志查看',
-        'system.export': '数据导出',
     },
 }
 

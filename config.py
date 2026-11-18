@@ -36,17 +36,3 @@ class Config:
         '.zip', '.rar', '.7z',
         '.dwg', '.dxf',
     }
-
-    # P1-02 考勤判定阈值（默认假设 A2）：标准班次 09:00–18:00，宽限 15 分钟
-    # 签到晚于 09:15 记迟到；签退早于 17:45 记早退；工作日周一~周五
-    SHIFT_START = '09:00'
-    SHIFT_END = '18:00'
-    LATE_GRACE_MIN = 15
-    EARLY_GRACE_MIN = 15
-    WORKDAYS = (0, 1, 2, 3, 4)  # Monday=0
-
-    # P1-12 图片/PDF 内联预览扩展名
-    PREVIEW_EXTENSIONS = {'.pdf', '.png', '.jpg', '.jpeg', '.gif', '.webp'}
-
-    # P1-16 CSV 单次导出行数上限（默认假设 A1）
-    MAX_EXPORT_ROWS = 10000

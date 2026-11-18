@@ -2,12 +2,7 @@
 {% from "_macros.html" import render_pagination %}
 {% block title %}库存查询 - 工厂管理系统{% endblock %}
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
-    <h4 class="mb-0">库存查询 <small class="text-muted fs-6">数量低于等于阈值红色标注</small></h4>
-    {% if 'system.export' in current_user|perm_codes %}
-        <a class="btn btn-outline-secondary" href="{{ url_for('warehouse.export_inventory_csv', warehouse_id=warehouse_id or 0, keyword=keyword, only_warning=only_warning) }}"><i class="bi bi-download"></i> 导出 CSV</a>
-    {% endif %}
-</div>
+<h4 class="mb-3">库存查询 <small class="text-muted fs-6">数量低于等于阈值红色标注</small></h4>
 <div class="card shadow-sm">
     <div class="card-body">
         <form class="row g-2 mb-3" method="GET">

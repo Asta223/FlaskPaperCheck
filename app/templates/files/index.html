@@ -46,22 +46,6 @@
     </div>
     <!-- 右：文件列表 -->
     <div class="col-md-9">
-        <div class="card shadow-sm mb-3">
-            <div class="card-body py-2">
-                <form class="row g-2" method="GET">
-                    <div class="col-md-5">
-                        <input class="form-control" type="text" name="keyword" value="{{ keyword }}" placeholder="按文件名关键词搜索">
-                    </div>
-                    <div class="col-md-4">
-                        <select class="form-select" name="cat_id">
-                            <option value="">全部分类</option>
-                            {% for c in cats %}<option value="{{ c.id }}" {% if cat_id == c.id %}selected{% endif %}>{{ c.name }}</option>{% endfor %}
-                        </select>
-                    </div>
-                    <div class="col-auto"><button class="btn btn-outline-primary" type="submit"><i class="bi bi-search"></i> 搜索</button></div>
-                </form>
-            </div>
-        </div>
         <div class="card shadow-sm">
             <div class="card-body p-0">
                 <table class="table table-hover align-middle mb-0">
@@ -76,15 +60,11 @@
                             <td>{{ f.size_display }}</td>
                             <td>
                                 {% if f.visibility_type == 'all' %}<span class="badge bg-success">全员</span>
-                                {% elif f.visibility_type == 'departments' %}<span class="badge bg-warning text-dark">部门：{% for d in f.visible_departments %}{{ d.name }}{% if not loop.last %}、{% endif %}{% endfor %}</span>
                                 {% else %}<span class="badge bg-info">角色：{% for r in f.visible_roles %}{{ r.name }}{% if not loop.last %}、{% endif %}{% endfor %}</span>{% endif %}
                             </td>
                             <td>{{ f.uploader.display_name() if f.uploader else '-' }}</td>
                             <td>{{ f.created_at | fmt_dt }}</td>
                             <td class="text-end">
-                                {% if f.file_ext|lower in ['.pdf', '.png', '.jpg', '.jpeg', '.gif', '.webp'] %}
-                                    <a class="btn btn-sm btn-outline-info" href="{{ url_for('files.preview', file_id=f.id) }}" target="_blank"><i class="bi bi-eye"></i> 预览</a>
-                                {% endif %}
                                 <a class="btn btn-sm btn-outline-primary" href="{{ url_for('files.download', file_id=f.id) }}"><i class="bi bi-download"></i> 下载</a>
                                 {% if can_manage %}
                                     <form class="d-inline" method="POST" action="{{ url_for('files.file_delete', file_id=f.id) }}"
