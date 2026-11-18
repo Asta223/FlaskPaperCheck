@@ -29,6 +29,26 @@ class Process(SoftDeleteMixin, db.Model):
         return '<Process %s %s>' % (self.code, self.name)
 
 
+class DefectReason(SoftDeleteMixin, db.Model):
+    """不良原因主数据：统一维护，工单质量记录只能下拉引用，避免用户乱写。
+
+    停用/软删除后不再出现在下拉；已有过质量记录引用时拒绝删除，保留历史留痕。
+    """
+    __tablename__ = 'defect_reasons'
+
+    id = db.Column(db.Integer, primary_key=True)
+    # 唯一性由应用层只校验未删除记录（与工序/物料等软删主数据口径一致）
+    code = db.Column(db.String(32), nullable=False, comment='原因编码，如 DR01')
+    name = db.Column(db.String(64), nullable=False, comment='不良原因名称')
+    category = db.Column(db.String(64), nullable=False, default='', comment='原因分类，如来料/工艺/设备')
+    is_active = db.Column(db.Boolean, nullable=False, default=True, comment='是否启用')
+    remark = db.Column(db.String(255), nullable=False, default='', comment='备注')
+    created_at = db.Column(db.DateTime, nullable=False, default=now, comment='创建时间')
+
+    def __repr__(self) -> str:
+        return '<DefectReason %s %s>' % (self.code, self.name)
+
+
 class WorkOrder(SoftDeleteMixin, db.Model):
     """生产工单。状态机：pending→in_progress→completed→accepted（仅允许相邻流转）。"""
     __tablename__ = 'work_orders'
@@ -60,15 +80,58 @@ class WorkOrder(SoftDeleteMixin, db.Model):
     created_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, comment='创建人')
     created_at = db.Column(db.DateTime, nullable=False, default=now, comment='创建时间')
 
+    # P2-6 质量记录：进行中/已完成工单回填；成品数量=良品+不良，良率/不良率入库保存
+    output_qty = db.Column(db.Integer, nullable=False, default=0,
+                           comment='成品数量（实际产出，良品+不良）')
+    good_qty = db.Column(db.Integer, nullable=False, default=0, comment='合格数量')
+    defect_qty = db.Column(db.Integer, nullable=False, default=0, comment='不良数量')
+    yield_rate = db.Column(db.Float, nullable=False, default=0, comment='良率(%)')
+    defect_rate = db.Column(db.Float, nullable=False, default=0, comment='不良率(%)')
+    defect_reason_id = db.Column(db.Integer, db.ForeignKey('defect_reasons.id'), nullable=True,
+                                 comment='不良原因（引用主数据）')
+    quality_remark = db.Column(db.String(500), nullable=False, default='', comment='质量备注')
+    quality_recorded_at = db.Column(db.DateTime, nullable=True, comment='质量记录时间')
+    quality_recorded_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True,
+                                    comment='质量记录人')
+
     leader = db.relationship('User', foreign_keys=[leader_id])
     creator = db.relationship('User', foreign_keys=[created_by])
     department = db.relationship('Department', foreign_keys=[related_department_id])
+    defect_reason = db.relationship('DefectReason', foreign_keys=[defect_reason_id])
+    quality_recorder = db.relationship('User', foreign_keys=[quality_recorded_by])
     steps = db.relationship('WorkOrderStep', backref='work_order',
                             order_by='WorkOrderStep.seq', cascade='all, delete-orphan')
 
     def next_status(self):
         """合法的下一状态，无可流转时返回 None。"""
         return self.STATUS_FLOW.get(self.status)
+
+    @property
+    def can_run_steps(self) -> bool:
+        """只有「进行中」工单才能执行工序流转/工时修正。
+
+        待开始是计划态（只允许排布工序、领料），已完成/已验收是终态，均不可操作。
+        """
+        return self.status == 'in_progress'
+
+    def record_quality(self, output_qty: int, good_qty: int, defect_qty: int,
+                       reason_id=None, remark: str = '', operator_id=None) -> None:
+        """写入质量记录并同步计算良率/不良率（服务端唯一计算口径）。"""
+        if output_qty < 0 or good_qty < 0 or defect_qty < 0:
+            raise ValueError('数量不能为负数')
+        if good_qty + defect_qty != output_qty:
+            raise ValueError('良品数量 + 不良数量必须等于成品数量')
+        if defect_qty > 0 and not reason_id:
+            raise ValueError('存在不良品时必须选择不良原因')
+        self.output_qty = output_qty
+        self.good_qty = good_qty
+        self.defect_qty = defect_qty
+        self.yield_rate = round(good_qty * 100.0 / output_qty, 2) if output_qty else 0.0
+        self.defect_rate = round(defect_qty * 100.0 / output_qty, 2) if output_qty else 0.0
+        self.defect_reason_id = reason_id or None
+        self.quality_remark = remark or ''
+        self.quality_recorded_at = now()
+        self.quality_recorded_by = operator_id
 
     def __repr__(self) -> str:
         return '<WorkOrder %s>' % self.order_no

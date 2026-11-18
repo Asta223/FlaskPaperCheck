@@ -138,6 +138,8 @@ def test_step_new_rejects_disabled_process(client):
 def test_step_completion_auto_calculates_labor_hours(client):
     login(client, 'producer1', '123456')
     o = _order()
+    o.status = 'in_progress'  # P2-6：只有进行中工单可执行工序流转
+    db.session.commit()
     step = WorkOrderStep(work_order_id=o.id, name='工时测试', seq=1)
     db.session.add(step)
     db.session.commit()
@@ -157,6 +159,8 @@ def test_step_completion_auto_calculates_labor_hours(client):
 def test_step_labor_manual_correction(client):
     login(client, 'producer1', '123456')
     o = _order()
+    o.status = 'in_progress'
+    db.session.commit()
     step = WorkOrderStep(work_order_id=o.id, name='工时修正', seq=1,
                          status='completed', labor_hours=2.0)
     db.session.add(step)
@@ -174,6 +178,8 @@ def test_step_labor_manual_correction(client):
 def test_step_labor_rejects_negative(client):
     login(client, 'producer1', '123456')
     o = _order()
+    o.status = 'in_progress'
+    db.session.commit()
     step = WorkOrderStep(work_order_id=o.id, name='负工时', seq=1, labor_hours=1)
     db.session.add(step)
     db.session.commit()

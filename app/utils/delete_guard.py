@@ -23,6 +23,7 @@ TABLE_LABELS = {
     'users': '员工', 'departments': '部门', 'roles': '角色', 'permissions': '权限点',
     'attendance_records': '考勤记录', 'leave_requests': '请假申请',
     'work_orders': '生产工单', 'work_order_steps': '工单工序', 'processes': '工序档案',
+    'defect_reasons': '不良原因',
     'materials': '物料', 'material_categories': '物料分类',
     'warehouses': '仓库', 'inventories': '库存记录', 'stock_documents': '出入库单据',
     'stock_ledgers': '库存流水', 'stock_warning_states': '库存预警状态',

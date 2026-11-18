@@ -10,7 +10,7 @@ from app.models.file import FactoryFile, FileCategory
 from app.models.leave import LeaveRequest
 from app.models.material import Material, MaterialCategory
 from app.models.org import Department
-from app.models.production import Process, WorkOrder, WorkOrderStep
+from app.models.production import DefectReason, Process, WorkOrder, WorkOrderStep
 from app.models.rbac import Role
 from app.models.system import OperationLog
 from app.models.user import User
@@ -56,6 +56,7 @@ RECYCLE_REGISTRY = {
     'department': (Department, '部门', 'hr', 'department', ()),
     'role': (Role, '角色', 'rbac', 'role', ('code',)),
     'process': (Process, '工序档案', 'production', 'process', ('code', 'name')),
+    'defect_reason': (DefectReason, '不良原因', 'production', 'defect_reason', ('code', 'name')),
     'work_order': (WorkOrder, '生产工单', 'production', 'work_order', ('order_no',)),
     'work_order_step': (WorkOrderStep, '工单工序', 'production', 'work_order_step', ()),
     'material_category': (MaterialCategory, '物料分类', 'material', 'material_category', ()),

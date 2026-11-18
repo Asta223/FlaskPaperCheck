@@ -7,11 +7,12 @@ from flask_login import current_user, login_required
 from sqlalchemy import func, or_
 
 from app import db
-from app.forms.production import (IssueForm, ProcessForm, StepLaborForm, WorkOrderForm,
-                                  WorkOrderStepForm, fill_department_choices,
+from app.forms.production import (DefectReasonForm, IssueForm, ProcessForm, QualityRecordForm,
+                                  StepLaborForm, WorkOrderForm, WorkOrderStepForm,
+                                  fill_defect_reason_choices, fill_department_choices,
                                   fill_issue_choices, fill_process_choices,
                                   fill_workorder_choices)
-from app.models.production import Process, WorkOrder, WorkOrderStep
+from app.models.production import DefectReason, Process, WorkOrder, WorkOrderStep
 from app.models.system import OperationLog
 from app.models.user import User
 from app.models.warehouse import Inventory, StockDocument
@@ -175,6 +176,108 @@ def process_delete(process_id):
     return redirect(url_for('production.process_list'))
 
 
+# ---------------- 不良原因主数据（P2-6：工单质量记录只能引用）----------------
+
+@bp.route('/defect-reasons')
+@login_required
+@permission_required('production.view')
+def defect_reason_list():
+    """不良原因列表：新增/编辑同页表单（仅管理权限者可见表单）。"""
+    edit_id = request.args.get('edit_id', type=int)
+    reason = db.session.get(DefectReason, edit_id) if edit_id else None
+    form = DefectReasonForm(obj=reason) if reason else DefectReasonForm()
+    reasons = DefectReason.query.order_by(DefectReason.code, DefectReason.id).all()
+    return render_template('production/defect_reason_list.html', form=form, reason=reason,
+                           reasons=reasons)
+
+
+def _duplicate_defect_reason(code, name, exclude_id=None):
+    """唯一性只校验未删除记录（软删后允许重建同编码/名称）。"""
+    query = DefectReason.query.filter(
+        (DefectReason.code == code) | (DefectReason.name == name))
+    if exclude_id:
+        query = query.filter(DefectReason.id != exclude_id)
+    return query.first()
+
+
+@bp.route('/defect-reasons/new', methods=['POST'])
+@login_required
+@permission_required('production.defect_reason.manage')
+def defect_reason_new():
+    """新增不良原因：编码/名称唯一，防止同一原因多种写法。"""
+    form = DefectReasonForm()
+    if not form.validate_on_submit():
+        flash('不良原因表单校验失败', 'danger')
+        return redirect(url_for('production.defect_reason_list'))
+    code = form.code.data.strip()
+    name = form.name.data.strip()
+    if _duplicate_defect_reason(code, name):
+        flash('不良原因编码或名称已存在', 'danger')
+        return redirect(url_for('production.defect_reason_list'))
+    db.session.add(DefectReason(code=code, name=name,
+                                category=form.category.data.strip() if form.category.data else '',
+                                remark=form.remark.data or ''))
+    db.session.commit()
+    flash('不良原因「%s」已创建' % name, 'success')
+    return redirect(url_for('production.defect_reason_list'))
+
+
+@bp.route('/defect-reasons/<int:reason_id>/edit', methods=['POST'])
+@login_required
+@permission_required('production.defect_reason.manage')
+def defect_reason_edit(reason_id):
+    """编辑不良原因：历史质量记录按 id 引用，改名不影响历史。"""
+    reason = db.get_or_404(DefectReason, reason_id)
+    form = DefectReasonForm(obj=reason)
+    if not form.validate_on_submit():
+        flash('不良原因表单校验失败', 'danger')
+        return redirect(url_for('production.defect_reason_list'))
+    code = form.code.data.strip()
+    name = form.name.data.strip()
+    duplicate = _duplicate_defect_reason(code, name, exclude_id=reason.id)
+    if duplicate:
+        flash('不良原因编码或名称已存在', 'danger')
+        return redirect(url_for('production.defect_reason_list'))
+    reason.code = code
+    reason.name = name
+    reason.category = form.category.data.strip() if form.category.data else ''
+    reason.remark = form.remark.data or ''
+    db.session.commit()
+    flash('不良原因已保存', 'success')
+    return redirect(url_for('production.defect_reason_list'))
+
+
+@bp.route('/defect-reasons/<int:reason_id>/toggle', methods=['POST'])
+@login_required
+@permission_required('production.defect_reason.manage')
+def defect_reason_toggle(reason_id):
+    """停用/启用不良原因：停用后不再出现在工单质量记录下拉。"""
+    reason = db.get_or_404(DefectReason, reason_id)
+    reason.is_active = not reason.is_active
+    db.session.commit()
+    flash('不良原因「%s」已%s' % (reason.name, '启用' if reason.is_active else '停用'),
+          'success' if reason.is_active else 'warning')
+    return redirect(url_for('production.defect_reason_list'))
+
+
+@bp.route('/defect-reasons/<int:reason_id>/delete', methods=['POST'])
+@login_required
+@permission_required('production.defect_reason.manage')
+def defect_reason_delete(reason_id):
+    """软删除不良原因：已被引用的质量记录存在时拒绝，可从回收站恢复。"""
+    reason = db.get_or_404(DefectReason, reason_id)
+    refs = find_references(reason)
+    if refs:
+        flash('不良原因「%s」仍被 %s 引用，不能删除；可先停用' % (
+            reason.name, format_references(refs)), 'danger')
+        return redirect(url_for('production.defect_reason_list'))
+    name = reason.name
+    mark_deleted(reason, module='production', target_type='defect_reason',
+                 summary='删除不良原因「%s」，可在回收站恢复' % name)
+    flash('不良原因「%s」已删除，可在系统管理→回收站恢复' % name, 'success')
+    return redirect(url_for('production.defect_reason_list'))
+
+
 @bp.route('/orders/new', methods=['GET', 'POST'])
 @login_required
 @permission_required('production.manage')
@@ -260,6 +363,8 @@ def order_detail(order_id):
         step_form.seq.data = len(order.steps) + 1
     # 工单总消耗工时
     total_hours = round(sum(s.labor_hours or 0 for s in order.steps), 2)
+    quality_form = QualityRecordForm(obj=order)
+    fill_defect_reason_choices(quality_form)
     issue_form = IssueForm()
     fill_issue_choices(issue_form)
     issue_docs = (StockDocument.query
@@ -274,7 +379,10 @@ def order_detail(order_id):
                            step_labels=WorkOrderStep.STATUS_LABELS,
                            issue_form=issue_form, issue_docs=issue_docs, op_logs=op_logs,
                            can_issue=order.status in ('pending', 'in_progress'),
-                           total_hours=total_hours, labor_form=StepLaborForm())
+                           can_run_steps=order.can_run_steps,
+                           can_record_quality=order.status in ('in_progress', 'completed'),
+                           total_hours=total_hours, labor_form=StepLaborForm(),
+                           quality_form=quality_form)
 
 
 @bp.route('/orders/<int:order_id>/status', methods=['POST'])
@@ -338,6 +446,14 @@ def step_new(order_id):
 def step_status(step_id):
     """工序状态流转（仅允许合法迁移），记录操作日志。"""
     step = db.get_or_404(WorkOrderStep, step_id)
+    order = db.session.get(WorkOrder, step.work_order_id)
+    if order is None:
+        abort(404)
+    if not order.can_run_steps:
+        flash('工单处于「%s」状态，只有「进行中」工单才能执行工序流转；'
+              '待开始工单请先流转工单状态' % WorkOrder.STATUS_LABELS.get(order.status, order.status),
+              'danger')
+        return redirect(url_for('production.order_detail', order_id=order.id))
     target = request.form.get('status', '')
     allowed = step.next_status()
     if target and target == allowed:
@@ -367,8 +483,14 @@ def step_status(step_id):
 @login_required
 @permission_required('production.manage')
 def step_labor(step_id):
-    """修正工序消耗工时（生产侧无审批，保存即生效并留操作日志）。"""
+    """修正工序消耗工时（仅进行中工单；生产侧无审批，保存即生效并留操作日志）。"""
     step = db.get_or_404(WorkOrderStep, step_id)
+    order = db.session.get(WorkOrder, step.work_order_id)
+    if order is None:
+        abort(404)
+    if not order.can_run_steps:
+        flash('只有「进行中」工单才能修正工序工时', 'danger')
+        return redirect(url_for('production.order_detail', order_id=order.id))
     form = StepLaborForm()
     if form.validate_on_submit():
         old = step.labor_hours or 0
@@ -385,6 +507,45 @@ def step_labor(step_id):
     else:
         flash('工时数据不合法（须为不小于0的数字）', 'danger')
     return redirect(url_for('production.order_detail', order_id=step.work_order_id))
+
+
+@bp.route('/orders/<int:order_id>/quality', methods=['POST'])
+@login_required
+@permission_required('production.manage')
+def order_quality(order_id):
+    """记录/修正工单质量数据（仅进行中/已完成；良率与不良率由服务端计算）。"""
+    order = db.get_or_404(WorkOrder, order_id)
+    if order.status not in ('in_progress', 'completed'):
+        flash('只有「进行中」或「已完成」工单才能记录质量数据', 'danger')
+        return redirect(url_for('production.order_detail', order_id=order.id))
+    form = QualityRecordForm()
+    fill_defect_reason_choices(form)
+    if not form.validate_on_submit():
+        flash('质量记录表单校验失败，请检查数量是否为不小于0的整数', 'danger')
+        return redirect(url_for('production.order_detail', order_id=order.id))
+    output_qty = form.output_qty.data or 0
+    good_qty = form.good_qty.data or 0
+    defect_qty = form.defect_qty.data or 0
+    reason_id = form.defect_reason_id.data or None
+    if reason_id:
+        reason = db.session.get(DefectReason, reason_id)
+        if reason is None or not reason.is_active:
+            flash('所选不良原因不存在或已停用', 'danger')
+            return redirect(url_for('production.order_detail', order_id=order.id))
+    try:
+        order.record_quality(output_qty, good_qty, defect_qty, reason_id,
+                             form.quality_remark.data or '', current_user.id)
+    except ValueError as exc:
+        flash(str(exc), 'danger')
+        return redirect(url_for('production.order_detail', order_id=order.id))
+    log_operation(module='production', action='update', target_type='work_order',
+                  target_id=order.id, operator_id=current_user.id,
+                  summary='工单 %s 质量记录：成品%s / 良品%s / 不良%s，良率%.2f%% 不良率%.2f%%' % (
+                      order.order_no, output_qty, good_qty, defect_qty,
+                      order.yield_rate, order.defect_rate))
+    db.session.commit()
+    flash('工单 %s 质量记录已保存' % order.order_no, 'success')
+    return redirect(url_for('production.order_detail', order_id=order.id))
 
 
 @bp.route('/steps/<int:step_id>/delete', methods=['POST'])

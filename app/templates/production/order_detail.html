@@ -43,6 +43,59 @@
     </div>
 </div>
 
+<!-- 质量记录（P2-6）：进行中/已完成工单可记录，待开始仅为计划态 -->
+<div class="card shadow-sm mb-3">
+    <div class="card-header bg-white d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-clipboard2-check"></i> 质量记录</span>
+        <span class="badge bg-light text-dark border">
+            成品 {{ order.output_qty or 0 }} · 良率 {{ '%.2f'|format(order.yield_rate or 0) }}% · 不良率 {{ '%.2f'|format(order.defect_rate or 0) }}%
+        </span>
+    </div>
+    <div class="card-body">
+        <div class="row mb-2">
+            <div class="col-md-2"><span class="text-muted">合格数量：</span>{{ order.good_qty or 0 }}</div>
+            <div class="col-md-2"><span class="text-muted">不良数量：</span>{{ order.defect_qty or 0 }}</div>
+            <div class="col-md-3"><span class="text-muted">不良原因：</span>{{ order.defect_reason.name if order.defect_reason else '-' }}</div>
+            <div class="col-md-5"><span class="text-muted">记录：</span>{{ order.quality_recorder.display_name() if order.quality_recorder else '-' }}{% if order.quality_recorded_at %} · {{ order.quality_recorded_at | fmt_dt }}{% endif %}</div>
+        </div>
+        {% if order.quality_remark %}<div class="mb-2"><span class="text-muted">质量备注：</span>{{ order.quality_remark }}</div>{% endif %}
+        {% if can_record_quality and 'production.manage' in current_user|perm_codes %}
+            <form method="POST" class="row g-2 border-top pt-3"
+                  action="{{ url_for('production.order_quality', order_id=order.id) }}">
+                {{ quality_form.hidden_tag() }}
+                <div class="col-md-2">
+                    <label class="form-label">成品数量</label>
+                    {{ quality_form.output_qty(class='form-control', type='number', min=0, id='qualityOutput') }}
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">合格数量</label>
+                    {{ quality_form.good_qty(class='form-control', type='number', min=0, id='qualityGood', oninput='syncQualityOutput()') }}
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">不良数量</label>
+                    {{ quality_form.defect_qty(class='form-control', type='number', min=0, id='qualityDefect', oninput='syncQualityOutput()') }}
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">不良原因（主数据）</label>
+                    {{ quality_form.defect_reason_id(class='form-select') }}
+                    <a class="small" href="{{ url_for('production.defect_reason_list') }}">维护不良原因</a>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">质量备注</label>
+                    {{ quality_form.quality_remark(class='form-control', placeholder='如：来料批次异常') }}
+                </div>
+                <div class="col-12 small text-muted">良率/不良率由系统按数量自动计算；成品数量 = 合格数量 + 不良数量。</div>
+                <div class="col-12">{{ quality_form.submit(class='btn btn-sm btn-outline-primary') }}</div>
+                {% for field in (quality_form.output_qty, quality_form.good_qty, quality_form.defect_qty, quality_form.defect_reason_id) %}
+                    {% for err in field.errors %}<div class="col-12 text-danger small">{{ err }}</div>{% endfor %}
+                {% endfor %}
+            </form>
+        {% elif 'production.manage' in current_user|perm_codes %}
+            <div class="text-muted small border-top pt-2">工单尚未开始或已结束，质量记录只在「进行中/已完成」状态可录入。</div>
+        {% endif %}
+    </div>
+</div>
+
 {% if 'production.manage' in current_user|perm_codes %}
     <div class="card shadow-sm mb-3">
         <div class="card-header bg-white"><i class="bi bi-plus-lg"></i> 添加工序
@@ -85,6 +138,12 @@
         <span class="badge bg-info text-dark">总消耗工时 {{ '%.2f'|format(total_hours or 0) }} h</span>
     </div>
     <div class="card-body">
+        {% if not can_run_steps %}
+            <div class="alert alert-light border small py-2 mb-3">
+                <i class="bi bi-lock"></i> 工单当前为「{{ status_labels.get(order.status, order.status) }}」状态，
+                工序流转与工时修正已锁定；待开始是计划态，请先将工单流转至「进行中」。
+            </div>
+        {% endif %}
         {% if order.steps %}
             <ul class="list-group list-group-flush">
                 {% for step in order.steps %}
@@ -107,14 +166,14 @@
                         {% if 'production.manage' in current_user|perm_codes %}
                             <div>
                                 {% set step_next = step.next_status() %}
-                                {% if step_next %}
+                                {% if can_run_steps and step_next %}
                                     <form class="d-inline" method="POST" action="{{ url_for('production.step_status', step_id=step.id) }}">
                                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                         <input type="hidden" name="status" value="{{ step_next }}">
                                         <button class="btn btn-sm btn-outline-primary" type="submit">→ {{ step.STATUS_LABELS[step_next] }}</button>
                                     </form>
                                 {% endif %}
-                                {% if step.status == 'completed' %}
+                                {% if can_run_steps and step.status == 'completed' %}
                                     <button class="btn btn-sm btn-outline-info" type="button"
                                             data-bs-toggle="modal" data-bs-target="#laborModal{{ step.id }}"
                                             title="修正实际消耗工时">修工时</button>
@@ -139,7 +198,7 @@
 
 {% if 'production.manage' in current_user|perm_codes %}
     {% for step in order.steps %}
-        {% if step.status == 'completed' %}
+        {% if can_run_steps and step.status == 'completed' %}
 <div class="modal fade" id="laborModal{{ step.id }}" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-sm">
     <div class="modal-content">
@@ -305,4 +364,14 @@
 })();
 </script>
 {% endif %}
+<script>
+function syncQualityOutput() {
+    var good = parseInt(document.getElementById('qualityGood').value, 10);
+    var defect = parseInt(document.getElementById('qualityDefect').value, 10);
+    var output = document.getElementById('qualityOutput');
+    if (!output) { return; }
+    if (isNaN(good) && isNaN(defect)) { output.value = ''; return; }
+    output.value = (isNaN(good) ? 0 : good) + (isNaN(defect) ? 0 : defect);
+}
+</script>
 {% endblock %}

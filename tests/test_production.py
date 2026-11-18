@@ -139,7 +139,7 @@ def _make_step(order, name='下料', seq=1, status='pending'):
 
 
 def test_step_invalid_jump_rejected(client):
-    order = _make_order()
+    order = _make_order(status='in_progress')
     step = _make_step(order)
     login(client, 'producer1', '123456')
     token = get_csrf(client, '/production/orders/%d' % order.id)
@@ -152,7 +152,7 @@ def test_step_invalid_jump_rejected(client):
 
 
 def test_step_valid_flow_sets_timestamps(client):
-    order = _make_order()
+    order = _make_order(status='in_progress')
     step = _make_step(order)
     login(client, 'producer1', '123456')
     # pending → in_progress

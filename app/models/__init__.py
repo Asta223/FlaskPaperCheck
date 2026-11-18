@@ -3,7 +3,7 @@ from app.models.user import User, user_roles
 from app.models.rbac import Permission, Role, role_permissions
 from app.models.org import Department
 from app.models.attendance import AttendanceRecord
-from app.models.production import Process, WorkOrder, WorkOrderStep
+from app.models.production import DefectReason, Process, WorkOrder, WorkOrderStep
 from app.models.material import Material, MaterialCategory
 from app.models.warehouse import Inventory, StockDocument, Warehouse
 from app.models.file import FactoryFile, FileCategory, file_role_visibility, \
@@ -19,7 +19,7 @@ __all__ = [
     'Role', 'Permission', 'role_permissions',
     'Department',
     'AttendanceRecord',
-    'Process', 'WorkOrder', 'WorkOrderStep',
+    'DefectReason', 'Process', 'WorkOrder', 'WorkOrderStep',
     'MaterialCategory', 'Material',
     'Warehouse', 'Inventory', 'StockDocument',
     'FileCategory', 'FactoryFile', 'file_role_visibility', 'file_department_visibility',
