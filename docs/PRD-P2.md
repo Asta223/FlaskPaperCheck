@@ -61,37 +61,7 @@
 
 ---
 
-## P2-3 追加需求（全量硬删除）
-
-用户诉求：**所有可新增的数据都应支持硬删除**——误操作建立的错误数据不存在"停用/复用"的价值，必须能彻底删掉。
-
-| 范围 | 新增硬删除入口 | 拒绝条件（保护历史完整性） |
-|---|---|---|
-| 员工 | `hr.employee_delete` | 当前登录账号；仍被考勤/请假/工单/文件等引用 |
-| 部门 | `hr.department_purge` | 仍有子部门、员工、请假、工单引用 |
-| 角色 | `rbac.role_delete` | 内置角色；仍有用户持有 |
-| 工序档案 | `production.process_delete` | 已被工单步骤引用 |
-| 工单 | `production.order_delete` | 已有工序步骤或领料单据 |
-| 物料 | `material.material_delete` | 有库存/单据/流水/预警引用 |
-| 物料分类 | `material.category_purge` | 有子分类或物料引用 |
-| 出入库单 | `warehouse.doc_delete` | 原入库货已被后续出库消耗（扣回会使库存为负） |
-| 文件 | `files.file_purge` | 无（同时删除磁盘文件与可见范围关联） |
-| 文件分类 | `files.category_purge` | 有子分类或文件引用 |
-| 请假申请 | `attendance.leave_delete` | 非本人且非管辖范围审批人（403） |
-| 打卡记录 | `attendance.record_delete` | 非本人且非管辖范围主管（403） |
-| 聊天消息 | `chat.message_delete` | 非发送人（403） |
-
-**实现机制**：新增 `app/utils/delete_guard.py` 统一守卫——物理删除前扫描全库外键，有引用则拒绝并列出具体来源（如"库存记录 3 条、出入库单据 6 条"）；多对多关联表（user_roles / role_permissions / file_*_visibility）作为附属关系自动清理，不算引用；操作日志作为审计留痕永不删除，删除员工时仅将 `operator_id` 置空（摘要仍含姓名）。
-
-**单据删除的账实一致性**：`reverse_stock_document()` 在同一事务内反向冲销库存（原入库→扣回、原出库→加回），保留原流水并追加一条方向相反、单号带 `-R` 后缀的冲销流水，保证"账实一致 + 审计不断链"。
-
-**明确不提供删除的数据**：操作日志、库存流水、通知、库存预警状态、权限点——这些是系统自动产生的审计/状态数据，不属于"用户可新增"，删除会破坏留痕定位。
-
-相关文件：`app/utils/delete_guard.py`、`app/services/inventory_service.py`、各业务蓝图与列表模板、`tests/test_p2_hard_delete.py`（15 项）。
-
----
-
 ## 验证
 
-- 自动化测试：P2-1 `tests/test_p2_production.py`（15 项）、P2-2 `tests/test_p2_warehouse_material.py`（10 项）、P2-3 `tests/test_p2_hard_delete.py`（15 项），全量 **253 passed**（P0/P1/QA/P2）。
-- 端到端实测（MySQL `FactoryManagementSystem` 库）：所有列表页删除按钮渲染正常；守卫正确检出物料的库存/单据/流水引用；临时工序与临时角色创建后硬删成功；有数据的员工账号打卡/请假删除按钮正常渲染。
+- 自动化测试：P2-1 `tests/test_p2_production.py`（15 项）、P2-2 `tests/test_p2_warehouse_material.py`（10 项），全量 **238 passed**（P0/P1/QA/P2）。
+- 端到端实测（MySQL `FactoryManagementSystem` 库）：工序页、下拉、余量 API、工时修正；仓库搜索/切换、物料库位列表/下拉带出/库存导出，全部通过。

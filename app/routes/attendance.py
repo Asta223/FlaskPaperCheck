@@ -114,28 +114,6 @@ def records():
                            target_user=target_user, can_select=can_select, users=users)
 
 
-@bp.route('/records/<int:record_id>/delete', methods=['POST'])
-@login_required
-@permission_required('attendance.view')
-def record_delete(record_id):
-    """彻底删除打卡记录（物理删）：本人可删，主管可删管辖范围内员工的记录。"""
-    rec = db.get_or_404(AttendanceRecord, record_id)
-    if rec.user_id != current_user.id:
-        owner = db.session.get(User, rec.user_id)
-        if not has_permission(current_user, 'attendance.view_all') or not _user_in_scope(owner):
-            abort(403)
-    date_str = rec.work_date.isoformat()
-    rid = rec.id
-    owner_name = db.session.get(User, rec.user_id).display_name()
-    owner_id = rec.user_id
-    db.session.delete(rec)
-    log_operation(module='attendance', action='delete', target_type='attendance_record',
-                  target_id=rid, summary='彻底删除 %s 的 %s 打卡记录' % (owner_name, date_str))
-    db.session.commit()
-    flash('%s 的打卡记录已彻底删除' % date_str, 'success')
-    return redirect(url_for('attendance.records', user_id=owner_id))
-
-
 def _user_in_scope(user) -> bool:
     """用户是否落在当前用户数据权限范围内（superadmin 或不收窄时放行）。"""
     scope = visible_department_ids(current_user)
@@ -337,30 +315,4 @@ def leave_approve(leave_id):
     db.session.commit()
     flash('已%s' % ('批准' if decision == 'approve' else '驳回'), 'success')
     return redirect(url_for('attendance.leave_approvals'))
-
-
-@bp.route('/leave/<int:leave_id>/delete', methods=['POST'])
-@login_required
-@permission_required('attendance.leave.apply')
-def leave_delete(leave_id):
-    """彻底删除请假申请（物理删）：申请人本人可删；审批人可删管辖范围内的申请。"""
-    leave_rec = db.get_or_404(LeaveRequest, leave_id)
-    applicant = db.session.get(User, leave_rec.applicant_id)
-    allowed = leave_rec.applicant_id == current_user.id or (
-        has_permission(current_user, 'attendance.leave.approve')
-        and applicant is not None and _user_in_scope(applicant)
-    )
-    if not allowed:
-        abort(403)
-    lid = leave_rec.id
-    applicant_name = applicant.display_name() if applicant else '未知员工'
-    db.session.delete(leave_rec)
-    log_operation(module='attendance', action='delete', target_type='leave_request',
-                  target_id=lid, summary='彻底删除 %s 的请假申请#%s' % (applicant_name, lid))
-    db.session.commit()
-    flash('请假申请 #%s 已彻底删除' % lid, 'success')
-    # 审批人从待办页删除则回待办页；本人删除则回我的请假
-    from_approvals = request.referrer and '/leave/approvals' in request.referrer
-    return redirect(url_for('attendance.leave_approvals' if from_approvals
-                            else 'attendance.leave_list'))
 

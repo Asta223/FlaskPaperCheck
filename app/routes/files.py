@@ -12,8 +12,6 @@ from app.forms.files import (FileCategoryForm, FileSearchForm, FileUploadForm,
                              fill_file_search_choices)
 from app.models.file import (FactoryFile, FileCategory, file_department_visibility,
                              file_role_visibility)
-from app.services.log_service import log_operation
-from app.utils.delete_guard import find_references, format_references, purge_associations
 from app.utils.permissions import has_permission, permission_required
 
 bp = Blueprint('files', __name__, url_prefix='/files')
@@ -228,31 +226,6 @@ def file_delete(file_id):
     return redirect(url_for('files.index'))
 
 
-@bp.route('/<int:file_id>/purge', methods=['POST'])
-@login_required
-@permission_required('files.manage')
-def file_purge(file_id):
-    """彻底删除文件（物理删）：同时删除磁盘文件与可见范围关联，不可恢复。"""
-    file_rec = db.get_or_404(FactoryFile, file_id)
-    name = file_rec.name
-    fid = file_rec.id
-    stored = file_rec.stored_filename
-    purge_associations(file_rec)
-    db.session.delete(file_rec)
-    log_operation(module='files', action='delete', target_type='file', target_id=fid,
-                  summary='彻底删除文件「%s」' % name)
-    db.session.commit()
-    # 数据库已提交后再删磁盘，避免删了文件但记录回滚导致下载失效
-    file_path = os.path.join(current_app.config['UPLOAD_FOLDER'], stored)
-    if os.path.exists(file_path):
-        try:
-            os.remove(file_path)
-        except OSError:
-            current_app.logger.warning('彻底删除文件后磁盘文件残留：%s', file_path)
-    flash('文件「%s」已彻底删除（含磁盘文件）' % name, 'success')
-    return redirect(url_for('files.index'))
-
-
 @bp.route('/categories/new', methods=['POST'])
 @login_required
 @permission_required('files.manage')
@@ -303,25 +276,4 @@ def category_delete(cat_id):
     cat.is_active = False
     db.session.commit()
     flash('分类已停用', 'warning')
-    return redirect(url_for('files.index'))
-
-
-@bp.route('/categories/<int:cat_id>/purge', methods=['POST'])
-@login_required
-@permission_required('files.manage')
-def category_purge(cat_id):
-    """彻底删除文件分类（物理删）：有子分类或文件引用时拒绝。"""
-    cat = db.get_or_404(FileCategory, cat_id)
-    refs = find_references(cat)
-    if refs:
-        flash('分类「%s」仍被 %s 引用，不能彻底删除；可先停用' % (
-            cat.name, format_references(refs)), 'danger')
-        return redirect(url_for('files.index'))
-    name = cat.name
-    cid = cat.id
-    db.session.delete(cat)
-    log_operation(module='files', action='delete', target_type='file_category', target_id=cid,
-                  summary='彻底删除文件分类「%s」' % name)
-    db.session.commit()
-    flash('分类「%s」已彻底删除' % name, 'success')
     return redirect(url_for('files.index'))

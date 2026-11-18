@@ -29,11 +29,6 @@
                                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                         <button class="btn btn-link btn-sm text-danger p-0 small" type="submit">停用</button>
                                     </form>
-                                    <form class="d-inline" method="POST" action="{{ url_for('hr.department_purge', dept_id=node.dept.id) }}"
-                                          onsubmit="return confirm('彻底删除部门「{{ node.dept.name }}」？该操作不可恢复，且仅当无业务记录引用时允许。');">
-                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                                        <button class="btn btn-link btn-sm text-danger p-0 small" type="submit">彻底删除</button>
-                                    </form>
                                 </span>
                                 {% if node.children %}{{ render_tree(node.children) }}{% endif %}
                             </li>

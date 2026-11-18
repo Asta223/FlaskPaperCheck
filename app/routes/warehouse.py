@@ -10,9 +10,8 @@ from app.models.ledger import StockLedger
 from app.models.material import Material
 from app.models.warehouse import Inventory, StockDocument, Warehouse
 from app.services.inventory_service import InsufficientStockError, InventoryServiceError, \
-    apply_stock_document, reverse_stock_document
+    apply_stock_document
 from app.services.log_service import log_operation
-from app.utils.delete_guard import find_references, format_references
 from app.utils.permissions import permission_required
 from app.utils.time_utils import today
 
@@ -183,30 +182,6 @@ def doc_new():
             flash('单据 %s 已提交，库存已更新' % doc.doc_no, 'success')
             return redirect(url_for('warehouse.inventory'))
     return render_template('warehouse/doc_form.html', form=form)
-
-
-@bp.route('/docs/<int:doc_id>/delete', methods=['POST'])
-@login_required
-@permission_required('warehouse.manage')
-def doc_delete(doc_id):
-    """彻底删除出入库单（物理删）：同事务反向冲销库存并追加冲销流水，保证账实一致。"""
-    doc = db.get_or_404(StockDocument, doc_id)
-    doc_no = doc.doc_no
-    try:
-        reverse_stock_document(doc, current_user.id)
-    except InsufficientStockError:
-        db.session.rollback()
-        flash('单据 %s 对应库存已被后续出库消耗，无法彻底删除（否则库存会变负）' % doc_no,
-              'danger')
-        return redirect(url_for('warehouse.doc_list'))
-    db.session.delete(doc)
-    log_operation(module='warehouse', action='delete', target_type='stock_document',
-                  target_id=doc_id,
-                  summary='彻底删除%s单据 %s ×%s，库存已反向冲销' % (
-                      '入库' if doc.doc_type == 'in' else '出库', doc_no, doc.quantity))
-    db.session.commit()
-    flash('单据 %s 已彻底删除，库存已反向冲销并留痕' % doc_no, 'success')
-    return redirect(url_for('warehouse.doc_list'))
 
 
 # ---------------- 库存查询 ----------------

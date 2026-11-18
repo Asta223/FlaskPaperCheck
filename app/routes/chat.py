@@ -1,5 +1,5 @@
 """站内聊天路由：会话页、发送、JSON API（unread/messages/read，轮询 13s）。"""
-from flask import Blueprint, abort, flash, jsonify, redirect, render_template, request, url_for
+from flask import Blueprint, flash, redirect, render_template, request, url_for
 from flask_login import current_user, login_required
 
 from app import csrf, db
@@ -7,7 +7,6 @@ from app.forms.chat import ChatSendForm
 from app.models.chat import ChatMessage
 from app.models.user import User
 from app.services import chat_service
-from app.services.log_service import log_operation
 
 bp = Blueprint('chat', __name__, url_prefix='/chat')
 
@@ -65,22 +64,6 @@ def send():
     else:
         flash('消息不能为空', 'danger')
     return redirect(url_for('chat.index'))
-
-
-@bp.route('/messages/<int:msg_id>/delete', methods=['POST'])
-@login_required
-def message_delete(msg_id):
-    """彻底删除聊天消息（物理删，等同撤回）：仅发送人本人可删。"""
-    msg = db.get_or_404(ChatMessage, msg_id)
-    if msg.sender_id != current_user.id:
-        abort(403)
-    receiver_id = msg.receiver_id
-    db.session.delete(msg)
-    log_operation(module='chat', action='delete', target_type='chat_message',
-                  target_id=msg_id, summary='撤回消息#%s' % msg_id)
-    db.session.commit()
-    return jsonify({'code': 0, 'data': {'id': msg_id, 'peer_id': receiver_id},
-                    'message': 'ok'})
 
 
 @bp.route('/api/unread')
