@@ -9,15 +9,6 @@ from app.utils.time_utils import today
 ZERO_CHOICE = (0, '-- 无 --')
 
 
-def fill_defect_reason_choices(form) -> None:
-    """运行时填充：不良原因下拉（仅启用且未删除的主数据）。"""
-    from app.models.production import DefectReason
-    form.defect_reason_id.choices = [ZERO_CHOICE] + [
-        (r.id, '%s %s%s' % (r.code, r.name, ('（%s）' % r.category) if r.category else ''))
-        for r in DefectReason.query.filter_by(is_active=True).order_by(DefectReason.code).all()
-    ]
-
-
 def fill_process_choices(form) -> None:
     """运行时填充：工序档案下拉（仅启用项，按排序）。"""
     from app.models.production import Process
@@ -42,35 +33,6 @@ class ProcessForm(FlaskForm):
     sort_order = IntegerField('排序号', validators=[Optional()], default=0)
     remark = StringField('备注', validators=[Optional(), Length(max=255)])
     submit = SubmitField('保存')
-
-
-class DefectReasonForm(FlaskForm):
-    """不良原因主数据新建/编辑表单。"""
-    code = StringField('原因编码', validators=[
-        DataRequired(message='请输入原因编码'), Length(max=32),
-    ])
-    name = StringField('原因名称', validators=[
-        DataRequired(message='请输入原因名称'), Length(max=64),
-    ])
-    category = StringField('原因分类', validators=[Optional(), Length(max=64)])
-    remark = StringField('备注', validators=[Optional(), Length(max=255)])
-    submit = SubmitField('保存')
-
-
-class QualityRecordForm(FlaskForm):
-    """工单质量记录表单：良率/不良率由服务端按数量计算，不接受用户填写。"""
-    output_qty = IntegerField('成品数量', validators=[
-        DataRequired(message='请输入成品数量'), NumberRange(min=0, message='成品数量不小于0'),
-    ])
-    good_qty = IntegerField('合格数量', validators=[
-        DataRequired(message='请输入合格数量'), NumberRange(min=0, message='合格数量不小于0'),
-    ])
-    defect_qty = IntegerField('不良数量', validators=[
-        DataRequired(message='请输入不良数量'), NumberRange(min=0, message='不良数量不小于0'),
-    ])
-    defect_reason_id = SelectField('不良原因', coerce=int, validators=[Optional()], default=0)
-    quality_remark = TextAreaField('质量备注', validators=[Optional(), Length(max=500)])
-    submit = SubmitField('保存质量记录')
 
 
 def fill_department_choices(form) -> None:

@@ -122,23 +122,7 @@
 
 ---
 
-## P2-6 追加需求：工单状态守卫、质量记录与不良原因主数据
-
-用户诉求：①待开始工单只是计划，不应执行工序的「流转到进行中/已完成」；②只有进行中工单才允许操作工序；③进行中工单需记录成品数量、良率、不良率、不良原因；④不良原因单独维护，避免自由输入。
-
-| 需求 | 实现 |
-|---|---|
-| 计划态锁定 | `WorkOrder.can_run_steps` 仅在 `status == 'in_progress'` 为真；`step_status`/`step_labor` 服务端强校验，页面同时隐藏流转/修工时按钮并给出锁定提示。待开始阶段仍可排布工序（计划）、领料；已完成/已验收为终态同样锁定。 |
-| 质量记录 | `work_orders` 新增成品/良品/不良数量、良率、不良率、不良原因 FK、质量备注、记录人/时间；`record_quality()` 服务端统一校验（数量非负、良品+不良=成品、有不良必须选原因）并计算良率/不良率；只有进行中/已完成工单可录入，记 OperationLog。 |
-| 不良原因主数据 | 新表 `defect_reasons`（编码/名称/分类/启停/软删），生产管理菜单下独立维护页，新增权限点 `production.defect_reason.manage`（superadmin/部门主管/生产管理员）；质量记录只能下拉选启用原因；被质量记录引用时拒绝删除，可从回收站恢复。 |
-
-**迁移** `e5f6a7b8c9d0_work_order_quality.py`：建 `defect_reasons` 表（含 `is_deleted`），给 `work_orders` 加 9 个质量字段与 2 个 FK/索引；历史工单质量字段默认 0/空，不回溯推导。已应用到 MySQL `FactoryManagementSystem`，权限点已同步。
-
-相关文件：`app/models/production.py`、`app/forms/production.py`、`app/routes/production.py`、`app/templates/production/order_detail.html`、`app/templates/production/defect_reason_list.html`、`app/utils/permissions.py`、`app/utils/menu.py`、`app/routes/system.py`、`migrations/versions/e5f6a7b8c9d0_work_order_quality.py`、`tests/test_p3_production_quality.py`。
-
----
-
 ## 验证
 
-- 自动化测试：P2-1 `tests/test_p2_production.py`（15 项）、P2-2 `tests/test_p2_warehouse_material.py`（10 项）、P2-3 `tests/test_p2_hard_delete.py`（15 项）、P2-4 `tests/test_p2_soft_delete_recycle.py`（5 项）、P2-5 `tests/test_p3_file_preview.py`（9 项）、P2-6 `tests/test_p3_production_quality.py`（7 项），全量 **274 passed**（P0/P1/QA/P2）。
-- 端到端实测（MySQL `FactoryManagementSystem` 库）：迁移后 15 张表新增 `is_deleted`；回收站菜单/页面可访问；删除后列表隐藏、回收站可见；恢复与库存重新入账可在操作日志追溯；txt/csv/docx/xlsx/xls 五类文件上传后预览页均返回 200 且内容正确（临时文件已清理）；P2-6 迁移已应用：待开始工单执行工序被拒、流转进行中后可完成工序，质量记录写入 9/1 与良率 90%/不良率 10%，不良原因主数据可建可改可停并支持回收站恢复（临时数据按软删口径隐藏）。
+- 自动化测试：P2-1 `tests/test_p2_production.py`（15 项）、P2-2 `tests/test_p2_warehouse_material.py`（10 项）、P2-3 `tests/test_p2_hard_delete.py`（15 项）、P2-4 `tests/test_p2_soft_delete_recycle.py`（5 项）、P2-5 `tests/test_p3_file_preview.py`（9 项），全量 **267 passed**（P0/P1/QA/P2）。
+- 端到端实测（MySQL `FactoryManagementSystem` 库）：迁移后 15 张表新增 `is_deleted`；回收站菜单/页面可访问；删除后列表隐藏、回收站可见；恢复与库存重新入账可在操作日志追溯；txt/csv/docx/xlsx 四类文件上传后预览页均返回 200 且内容正确（临时文件已清理）。
