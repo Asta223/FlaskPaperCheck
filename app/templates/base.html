@@ -12,9 +12,6 @@
                    overflow-y: auto; border-right: 1px solid #eee; }
         .sidebar .nav-link { color: #333; }
         .sidebar .nav-link.active, .sidebar .nav-link:hover { color: #0d6efd; background: #f0f6ff; }
-        .sidebar .group-toggle { cursor: pointer; }
-        .sidebar .group-toggle .menu-caret { transition: transform .2s ease; }
-        .sidebar .group-toggle[aria-expanded="false"] .menu-caret { transform: rotate(-90deg); }
         main.content { margin-left: 220px; }
         @media (max-width: 767.98px) {
             .sidebar { display: none; }
@@ -57,25 +54,18 @@
                 <ul class="nav flex-column">
                     {% for item in current_menu %}
                         {% if item.children %}
-                            {% set group_id = 'menu-group-' ~ loop.index %}
                             <li class="nav-item">
-                                <a class="nav-link text-muted fw-bold small pt-3 group-toggle d-flex justify-content-between align-items-center"
-                                   href="#{{ group_id }}" data-bs-toggle="collapse" data-bs-target="#{{ group_id }}"
-                                   aria-expanded="true"
-                                   aria-controls="{{ group_id }}">
-                                    <span><i class="bi {{ item.icon }}"></i> {{ item.name }}</span>
-                                    <i class="bi bi-chevron-down menu-caret small"></i>
-                                </a>
-                                <div class="collapse show" id="{{ group_id }}">
-                                    <ul class="nav flex-column ms-3">
-                                        {% for sub in item.children %}
-                                            <li class="nav-item">
-                                                <a class="nav-link py-1 {% if request.endpoint == sub.endpoint %}active fw-bold{% endif %}"
-                                                   href="{{ url_for(sub.endpoint) }}">{{ sub.name }}</a>
-                                            </li>
-                                        {% endfor %}
-                                    </ul>
-                                </div>
+                                <span class="nav-link text-muted fw-bold small pt-3">
+                                    <i class="bi {{ item.icon }}"></i> {{ item.name }}
+                                </span>
+                                <ul class="nav flex-column ms-3">
+                                    {% for sub in item.children %}
+                                        <li class="nav-item">
+                                            <a class="nav-link py-1 {% if request.endpoint == sub.endpoint %}active fw-bold{% endif %}"
+                                               href="{{ url_for(sub.endpoint) }}">{{ sub.name }}</a>
+                                        </li>
+                                    {% endfor %}
+                                </ul>
                             </li>
                         {% else %}
                             <li class="nav-item">
@@ -98,39 +88,6 @@
     </div>
 
     <script>
-        // 侧边栏分组折叠：默认全部展开（与旧版一致），用户折叠后记住状态，翻页保持
-        // 注意：Bootstrap bundle 在本页底部才加载，故等 DOMContentLoaded 后再初始化
-        document.addEventListener('DOMContentLoaded', function () {
-            var STORAGE_KEY = 'factorySidebarCollapsed';
-            var collapsed = {};
-            try { collapsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}') || {}; } catch (e) { collapsed = {}; }
-
-            var toggles = document.querySelectorAll('#sidebar .group-toggle');
-            toggles.forEach(function (link) {
-                var target = document.querySelector(link.getAttribute('data-bs-target'));
-                if (!target) { return; }
-                var groupId = target.id;
-                var bsCollapse = bootstrap.Collapse.getOrCreateInstance(target, { toggle: false });
-
-                // 恢复：被标记折叠的组收起，并同步箭头方向
-                if (collapsed[groupId]) {
-                    bsCollapse.hide();
-                    link.setAttribute('aria-expanded', 'false');
-                }
-
-                target.addEventListener('shown.bs.collapse', function () {
-                    link.setAttribute('aria-expanded', 'true');
-                    collapsed[groupId] = false;
-                    localStorage.setItem(STORAGE_KEY, JSON.stringify(collapsed));
-                });
-                target.addEventListener('hidden.bs.collapse', function () {
-                    link.setAttribute('aria-expanded', 'false');
-                    collapsed[groupId] = true;
-                    localStorage.setItem(STORAGE_KEY, JSON.stringify(collapsed));
-                });
-            });
-        });
-
         // 站内消息未读角标：13 秒轮询 /chat/api/unread
         function refreshUnreadBadge() {
             fetch('{{ url_for("chat.api_unread") }}')
