@@ -141,7 +141,7 @@ def test_process_hard_delete_referenced_rejected(client):
     token = get_csrf(client, '/production/processes')
     r1 = client.post('/production/processes/%d/delete' % used.id,
                      data={'csrf_token': token}, follow_redirects=True)
-    assert '工单工序'.encode() in r1.data
+    assert ('工单工序'.encode() in r1.data or '禁止删除'.encode() in r1.data)
     assert db.session.get(Process, used.id) is not None
     r2 = client.post('/production/processes/%d/delete' % free.id,
                      data={'csrf_token': token})

@@ -33,11 +33,12 @@ TABLE_LABELS = {
 }
 
 
-def find_references(obj, *, extra_ignore=()):
+def find_references(obj, *, extra_ignore=(), include_deleted=False):
     """扫描全库外键，返回仍引用 obj 的业务表及条数：{表名: 条数}。
 
     默认忽略多对多关联表（附属关系）与操作日志（审计留痕，另行置空操作人）。
     extra_ignore 用于传入会被一并清理的表（如员工删除时的聊天/通知）。
+    include_deleted=True 时连已软删的引用行也统计（物理硬删除前的安全校验用）。
     """
     target_table = obj.__tablename__
     primary_key = inspect(obj).mapper.primary_key[0]
@@ -58,7 +59,7 @@ def find_references(obj, *, extra_ignore=()):
                        for fk in column.foreign_keys):
                 continue
             where = column == pk_value
-            if soft_col is not None:
+            if soft_col is not None and not include_deleted:
                 where = db.and_(where, soft_col.is_(False))
             count = db.session.execute(
                 select(func.count()).select_from(table).where(where)

@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>查重结果</h2>
+<div class="card mb-3">
+    <div class="card-header">
+        课程报告标题：{{ record.paper.title }}
+    </div>
+    <div class="card-body">
+        <h5 class="card-title">总体相似度：{{ "%.2f"|format(record.similarity_score * 100) }}%</h5>
+        <p class="card-text">查重算法：{{ record.algorithm }}</p>
+        <p class="card-text">查重时间：{{ record.check_time.strftime('%Y-%m-%d %H:%M') }}</p>
+    </div>
+</div>
+
+{# 显示相似文献列表（适用于 TF-IDF、文档级 BERT、Doc2Vec、Jaccard 等） #}
+{% if record.get_details().similar_papers %}
+    <h4>相似文献列表</h4>
+    <table class="table table-striped">
+        <thead>
+            <tr>
+                <th>来源</th>
+                <th>文献标题</th>
+                <th>相似度</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in record.get_details().similar_papers %}
+                <tr>
+                    <td>
+                        {% if item.source == 'reference' %}
+                            <span class="badge bg-secondary">参考库</span>
+                        {% else %}
+                            <span class="badge bg-info text-dark">已上传报告</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ item.title }}</td>
+                    <td>{{ "%.2f"|format(item.score * 100) }}%</td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+{% endif %}
+
+{# 句子级 BERT 特殊显示 #}
+{% if record.get_details().algorithm == 'sentence_bert' and record.get_details().paper_matches %}
+    <h4 class="mt-4">句子级匹配详情</h4>
+    {% for paper_match in record.get_details().paper_matches %}
+        <div class="card mb-3">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span>
+                    {% if paper_match.source == 'reference' %}
+                        <span class="badge bg-secondary">参考库</span>
+                    {% else %}
+                        <span class="badge bg-info text-dark">已上传报告</span>
+                    {% endif %}
+                    与《{{ paper_match.paper_title }}》相似度：{{ "%.2f"|format(paper_match.score * 100) }}%
+                </span>
+            </div>
+            <div class="card-body">
+                <button class="btn btn-sm btn-outline-primary mb-2" type="button" data-bs-toggle="collapse" data-bs-target="#collapse{{ paper_match.paper_id }}" aria-expanded="false">
+                    查看匹配句子
+                </button>
+                <div class="collapse" id="collapse{{ paper_match.paper_id }}">
+                    <table class="table table-sm table-bordered">
+                        <thead>
+                            <tr>
+                                <th>本文句子</th>
+                                <th>相似句子（来自《{{ paper_match.paper_title }}》）</th>
+                                <th>相似度</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for match in paper_match.matches %}
+                            <tr>
+                                <td>{{ match.sentence_a }}</td>
+                                <td>{{ match.sentence_b }}</td>
+                                <td>{{ "%.2f"|format(match.score * 100) }}%</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    {% endfor %}
+{% endif %}
+
+{# 句子级高亮：全文视图（标红的句子为疑似相似片段） #}
+{% set highlights = record.get_details().highlights %}
+{% if highlights %}
+    <h4 class="mt-4">全文高亮（标红为疑似相似片段，共 {{ highlights|length }} 句）</h4>
+    <div class="border rounded p-3 bg-light" style="line-height:1.9;">
+        {% if highlight_view %}
+            {% for idx, sentence, flagged in highlight_view %}
+                {% if flagged %}
+                    <span class="bg-danger text-white rounded px-1">{{ sentence }}</span>
+                {% else %}
+                    {{ sentence }}
+                {% endif %}
+                {% if not loop.last %}　{% endif %}
+            {% endfor %}
+        {% else %}
+            <p>暂无全文视图。</p>
+        {% endif %}
+    </div>
+
+    <h4 class="mt-4">疑似相似片段明细</h4>
+    {% for h in highlights %}
+        <div class="card mb-2 border-danger">
+            <div class="card-header py-2">
+                {% if h.matched_source == 'reference' %}
+                    <span class="badge bg-secondary">参考库</span>
+                {% else %}
+                    <span class="badge bg-info text-dark">已上传报告</span>
+                {% endif %}
+                来源《{{ h.matched_title }}》 · 相似度 {{ "%.2f"|format(h.score * 100) }}%
+            </div>
+            <div class="card-body py-2">
+                <p class="mb-1"><strong>本句：</strong>{{ h.sentence }}</p>
+                <p class="mb-0"><strong>相似句：</strong>{{ h.matched }}</p>
+            </div>
+        </div>
+    {% endfor %}
+{% endif %}
+
+{# 如果没有相似文献且无句子匹配且无高亮，显示提示 #}
+{% if not record.get_details().similar_papers and not (record.get_details().algorithm == 'sentence_bert' and record.get_details().paper_matches) and not highlights %}
+    <p>未发现相似文献或疑似相似片段。</p>
+{% endif %}
+
+<div class="mt-3">
+    <a href="{{ url_for('paper.export', record_id=record.id, format='pdf') }}" class="btn btn-success">导出PDF</a>
+    <a href="{{ url_for('paper.export', record_id=record.id, format='docx') }}" class="btn btn-outline-success">导出Word</a>
+    <a href="{{ url_for('paper.export', record_id=record.id, format='html') }}" class="btn btn-outline-secondary">导出HTML</a>
+    <a href="{{ url_for('paper.upload') }}" class="btn btn-primary">再次上传</a>
+</div>
+{% endblock %}
