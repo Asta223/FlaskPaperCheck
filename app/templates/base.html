@@ -4,8 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}工厂管理系统{% endblock %}</title>
-    <link href="{{ url_for('static', filename='vendor/bootstrap.min.css') }}" rel="stylesheet">
-    <link href="{{ url_for('static', filename='vendor/bootstrap-icons.min.css') }}" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.min.css" rel="stylesheet">
     <style>
         body { min-height: 100vh; }
         .sidebar { position: fixed; top: 56px; bottom: 0; left: 0; z-index: 100; width: 220px;
@@ -15,7 +15,6 @@
         .sidebar .group-toggle { cursor: pointer; }
         .sidebar .group-toggle .menu-caret { transition: transform .2s ease; }
         .sidebar .group-toggle[aria-expanded="false"] .menu-caret { transform: rotate(-90deg); }
-        .sidebar .collapse:not(.show) { display: none; }
         main.content { margin-left: 220px; }
         @media (max-width: 767.98px) {
             .sidebar { display: none; }
@@ -61,7 +60,7 @@
                             {% set group_id = 'menu-group-' ~ loop.index %}
                             <li class="nav-item">
                                 <a class="nav-link text-muted fw-bold small pt-3 group-toggle d-flex justify-content-between align-items-center"
-                                   href="javascript:void(0)" data-collapse-target="{{ group_id }}"
+                                   href="#{{ group_id }}" data-bs-toggle="collapse" data-bs-target="#{{ group_id }}"
                                    aria-expanded="true"
                                    aria-controls="{{ group_id }}">
                                     <span><i class="bi {{ item.icon }}"></i> {{ item.name }}</span>
@@ -99,7 +98,8 @@
     </div>
 
     <script>
-        // 侧边栏分组折叠（纯原生实现，不依赖 Bootstrap JS，避免 CDN 不可达时失效）
+        // 侧边栏分组折叠：默认全部展开（与旧版一致），用户折叠后记住状态，翻页保持
+        // 注意：Bootstrap bundle 在本页底部才加载，故等 DOMContentLoaded 后再初始化
         document.addEventListener('DOMContentLoaded', function () {
             var STORAGE_KEY = 'factorySidebarCollapsed';
             var collapsed = {};
@@ -107,31 +107,26 @@
 
             var toggles = document.querySelectorAll('#sidebar .group-toggle');
             toggles.forEach(function (link) {
-                var groupId = link.getAttribute('data-collapse-target');
-                var panel = document.getElementById(groupId);
-                if (!panel) { return; }
+                var target = document.querySelector(link.getAttribute('data-bs-target'));
+                if (!target) { return; }
+                var groupId = target.id;
+                var bsCollapse = bootstrap.Collapse.getOrCreateInstance(target, { toggle: false });
 
-                // 应用折叠状态：toggle 'show' 类 + 同步箭头方向
-                function applyState(isCollapsed) {
-                    if (isCollapsed) {
-                        panel.classList.remove('show');
-                        link.setAttribute('aria-expanded', 'false');
-                    } else {
-                        panel.classList.add('show');
-                        link.setAttribute('aria-expanded', 'true');
-                    }
+                // 恢复：被标记折叠的组收起，并同步箭头方向
+                if (collapsed[groupId]) {
+                    bsCollapse.hide();
+                    link.setAttribute('aria-expanded', 'false');
                 }
 
-                // 恢复上次状态
-                applyState(!!collapsed[groupId]);
-
-                // 点击切换
-                link.addEventListener('click', function (e) {
-                    e.preventDefault();
-                    var nowCollapsed = !panel.classList.contains('show');
-                    applyState(nowCollapsed);
-                    collapsed[groupId] = nowCollapsed;
-                    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(collapsed)); } catch (err) {}
+                target.addEventListener('shown.bs.collapse', function () {
+                    link.setAttribute('aria-expanded', 'true');
+                    collapsed[groupId] = false;
+                    localStorage.setItem(STORAGE_KEY, JSON.stringify(collapsed));
+                });
+                target.addEventListener('hidden.bs.collapse', function () {
+                    link.setAttribute('aria-expanded', 'false');
+                    collapsed[groupId] = true;
+                    localStorage.setItem(STORAGE_KEY, JSON.stringify(collapsed));
                 });
             });
         });
@@ -169,7 +164,7 @@
         {% block anonymous_content %}{% endblock %}
     </div>
 {% endif %}
-<script src="{{ url_for('static', filename='vendor/bootstrap.bundle.min.js') }}"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 {% block scripts %}{% endblock %}
 </body>
 </html>
