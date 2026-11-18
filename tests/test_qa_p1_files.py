@@ -143,8 +143,8 @@ class TestQAFileSearchPreview:
         assert 'QA分页00' in page2 and 'QA分页24' not in page2
         assert len(many) == 25
 
-    def test_preview_inline_for_image_and_pdf_download_for_others(self, client):
-        """图片/PDF 内联预览；其他格式操作列无预览按钮且预览跳转下载。"""
+    def test_preview_inline_for_image_and_pdf_text_gets_parsed_page(self, client):
+        """图片/PDF 内联预览；txt 展示解析后的预览页（均可从列表点入）。"""
         png = _make_file('QA图片', ext='.png')
         pdf = _make_file('QA文档', ext='.pdf')
         txt = _make_file('QA文本', ext='.txt')
@@ -160,8 +160,8 @@ class TestQAFileSearchPreview:
 
         listing = client.get('/files/').data.decode('utf-8')
         txt_preview_link = '/files/%d/preview' % txt.id
-        assert txt_preview_link not in listing
-        assert client.get('/files/%d/preview' % txt.id).status_code == 302
+        assert txt_preview_link in listing
+        assert client.get('/files/%d/preview' % txt.id).status_code == 200
 
     def test_migration_expands_visibility_type_to_16(self, app_ctx):
         """静态核对：迁移用 batch_alter_table 将 visibility_type 扩到 String(16)。"""

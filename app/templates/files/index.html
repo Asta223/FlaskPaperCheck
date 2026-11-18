@@ -82,7 +82,7 @@
                             <td>{{ f.uploader.display_name() if f.uploader else '-' }}</td>
                             <td>{{ f.created_at | fmt_dt }}</td>
                             <td class="text-end">
-                                {% if f.file_ext|lower in ['.pdf', '.png', '.jpg', '.jpeg', '.gif', '.webp'] %}
+                                {% if f.file_ext|lower in previewable_exts %}
                                     <a class="btn btn-sm btn-outline-info" href="{{ url_for('files.preview', file_id=f.id) }}" target="_blank"><i class="bi bi-eye"></i> 预览</a>
                                 {% endif %}
                                 <a class="btn btn-sm btn-outline-primary" href="{{ url_for('files.download', file_id=f.id) }}"><i class="bi bi-download"></i> 下载</a>
