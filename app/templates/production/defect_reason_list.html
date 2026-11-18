@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block title %}不良原因 - 工厂管理系统{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h4 class="mb-0"><i class="bi bi-exclamation-triangle"></i> 不良原因</h4>
+    <span class="text-muted small">统一维护不良原因，工单质量记录只能从下表选择，避免自由填写</span>
+</div>
+
+<div class="row">
+    <div class="col-lg-4">
+        <div class="card shadow-sm">
+            <div class="card-header bg-white">
+                <i class="bi bi-plus-lg"></i> {{ '编辑不良原因' if reason else '新增不良原因' }}
+                {% if not reason and 'production.defect_reason.manage' not in current_user|perm_codes %}
+                    <span class="text-muted small">（只读）</span>
+                {% endif %}
+            </div>
+            <div class="card-body">
+                {% if 'production.defect_reason.manage' in current_user|perm_codes %}
+                <form method="POST" class="row g-3"
+                      action="{{ url_for('production.defect_reason_edit', reason_id=reason.id) if reason else url_for('production.defect_reason_new') }}">
+                    {{ form.hidden_tag() }}
+                    <div class="col-12">
+                        {{ form.code.label(class='form-label') }}
+                        {{ form.code(class='form-control', placeholder='如 DR01') }}
+                        {% for err in form.code.errors %}<div class="text-danger small">{{ err }}</div>{% endfor %}
+                    </div>
+                    <div class="col-12">
+                        {{ form.name.label(class='form-label') }}
+                        {{ form.name(class='form-control', placeholder='如 来料尺寸超差') }}
+                        {% for err in form.name.errors %}<div class="text-danger small">{{ err }}</div>{% endfor %}
+                    </div>
+                    <div class="col-12">
+                        {{ form.category.label(class='form-label') }}
+                        {{ form.category(class='form-control', placeholder='如来料/工艺/设备') }}
+                    </div>
+                    <div class="col-12">
+                        {{ form.remark.label(class='form-label') }}
+                        {{ form.remark(class='form-control') }}
+                    </div>
+                    <div class="col-12">
+                        {{ form.submit(class='btn btn-primary') }}
+                        {% if reason %}
+                            <a class="btn btn-outline-secondary" href="{{ url_for('production.defect_reason_list') }}">取消编辑</a>
+                        {% endif %}
+                    </div>
+                </form>
+                {% else %}
+                    <p class="text-muted mb-0">你没有不良原因维护权限，只能查看列表。</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-8">
+        <div class="card shadow-sm">
+            <div class="card-header bg-white"><i class="bi bi-table"></i> 已维护原因（{{ reasons|length }}）</div>
+            <div class="card-body p-0">
+                <table class="table table-hover mb-0 align-middle">
+                    <thead class="table-light">
+                        <tr><th>编码</th><th>原因名称</th><th>分类</th><th>状态</th><th>备注</th><th class="text-end">操作</th></tr>
+                    </thead>
+                    <tbody>
+                    {% for r in reasons %}
+                        <tr class="{% if not r.is_active %}text-muted{% endif %}">
+                            <td>{{ r.code }}</td>
+                            <td class="fw-bold">{{ r.name }}</td>
+                            <td>{{ r.category or '-' }}</td>
+                            <td>
+                                {% if r.is_active %}<span class="badge bg-success">启用</span>
+                                {% else %}<span class="badge bg-secondary">停用</span>{% endif %}
+                            </td>
+                            <td>{{ r.remark or '-' }}</td>
+                            <td class="text-end">
+                                {% if 'production.defect_reason.manage' in current_user|perm_codes %}
+                                    <a class="btn btn-sm btn-outline-primary"
+                                       href="{{ url_for('production.defect_reason_list', edit_id=r.id) }}">编辑</a>
+                                    <form class="d-inline" method="POST"
+                                          action="{{ url_for('production.defect_reason_toggle', reason_id=r.id) }}">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                        <button class="btn btn-sm btn-outline-warning" type="submit">
+                                            {{ '启用' if not r.is_active else '停用' }}</button>
+                                    </form>
+                                    <form class="d-inline" method="POST"
+                                          action="{{ url_for('production.defect_reason_delete', reason_id=r.id) }}"
+                                          onsubmit="return confirm('删除不良原因「{{ r.name }}」？可在回收站恢复，且仅当无质量记录引用时允许。');">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                        <button class="btn btn-sm btn-outline-danger" type="submit" title="删除（可在回收站恢复）">
+                                            <i class="bi bi-trash3"></i>
+                                        </button>
+                                    </form>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% else %}
+                        <tr><td colspan="6" class="text-center text-muted py-3">暂无不良原因，请在左侧新增</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,74 @@
+sequenceDiagram
+    participant U as 用户浏览器
+    participant A as auth蓝图
+    participant DB as SQLAlchemy/DB
+    participant D as 被保护蓝图
+    participant P as permissions.py
+    participant M as menu.py/context_processor
+    participant T as base.html(Jinja2)
+    Note over U,T: 流程① 登录+权限校验+菜单渲染
+    U->>A: POST /auth/login
+    A->>DB: User.query.filter_by(username)
+    DB-->>A: user
+    A->>A: check_password_hash
+    A->>A: login_user(user)
+    A-->>U: 302 → /
+    U->>D: GET /hr/employees
+    D->>P: @permission_required('hr.view')
+    alt superadmin
+        P-->>D: 放行
+    else 普通用户
+        P->>DB: user_roles→role_permissions→permission.code
+        DB-->>P: 权限码集合
+        alt 含 'hr.view'
+            P-->>D: 放行
+        else 不含
+            P-->>U: 403.html
+        end
+    end
+    D->>DB: 查询员工列表
+    DB-->>D: rows
+    D->>M: context_processor 注入 current_menu
+    M->>P: MENU_REGISTRY 按权限过滤
+    M-->>D: 菜单树
+    D->>T: render_template
+    T-->>U: 页面(侧边栏+未读角标JS)
+
+    Note over U,DB: 流程② 出入库单据提交→库存更新
+    participant W as warehouse蓝图
+    participant F as DocForm(Flask-WTF)
+    participant S as inventory_service
+    U->>W: POST /warehouse/docs/new
+    W->>F: validate_on_submit+CSRF
+    F-->>W: 通过
+    W->>S: apply_stock_document()
+    S->>DB: BEGIN
+    S->>DB: SELECT Inventory WITH FOR UPDATE
+    alt 出库且库存不足
+        S->>DB: ROLLBACK
+        W-->>U: flash 库存不足
+    else 通过
+        S->>DB: UPDATE Inventory ± qty
+        S->>DB: INSERT StockDocument
+        S->>DB: COMMIT
+        W-->>U: 302 → /warehouse/inventory
+
+        Note over U,DB: 流程③ 聊天发送+轮询
+        participant C as chat蓝图
+        U->>C: POST /chat/send
+        C->>DB: INSERT ChatMessage(is_read=False)
+        C-->>U: 302 回聊天窗
+        loop 每13秒
+            U->>C: GET /chat/api/unread
+            C->>DB: count(receiver=me, is_read=False)
+            C-->>U: {count, items[]}
+        end
+        U->>C: GET /chat/?peer_id=x
+        C->>DB: 标记 is_read=True
+        C-->>U: 渲染历史+last_id
+        loop 会话打开期间每5秒
+            U->>C: GET /chat/api/messages?peer_id&after_id
+            C->>DB: SELECT id>last_id
+            C-->>U: 新消息JSON
+        end
+    end

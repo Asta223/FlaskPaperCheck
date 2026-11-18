@@ -1,0 +1,48 @@
+{% macro render_pagination(pagination, endpoint) %}
+    {# 分页宏：沿用当前请求的 query 参数（自动保留筛选条件），仅替换 page #}
+    {% if pagination.pages > 1 %}
+        {% set args = request.args.to_dict() %}
+        <nav aria-label="分页">
+            <ul class="pagination justify-content-center mt-3">
+                <li class="page-item {% if not pagination.has_prev %}disabled{% endif %}">
+                    {% if pagination.has_prev %}{% set prev_args = dict(args) %}{% set _ = prev_args.update(page=pagination.prev_num) %}
+                        <a class="page-link" href="{{ url_for(endpoint, **prev_args) }}">上一页</a>
+                    {% else %}
+                        <a class="page-link" href="#">上一页</a>
+                    {% endif %}
+                </li>
+                {% for p in pagination.iter_pages(left_edge=1, left_current=2, right_current=2, right_edge=1) %}
+                    {% if p %}
+                        {% set page_args = dict(args) %}{% set _ = page_args.update(page=p) %}
+                        <li class="page-item {% if p == pagination.page %}active{% endif %}">
+                            <a class="page-link" href="{{ url_for(endpoint, **page_args) }}">{{ p }}</a>
+                        </li>
+                    {% else %}
+                        <li class="page-item disabled"><span class="page-link">…</span></li>
+                    {% endif %}
+                {% endfor %}
+                <li class="page-item {% if not pagination.has_next %}disabled{% endif %}">
+                    {% if pagination.has_next %}{% set next_args = dict(args) %}{% set _ = next_args.update(page=pagination.next_num) %}
+                        <a class="page-link" href="{{ url_for(endpoint, **next_args) }}">下一页</a>
+                    {% else %}
+                        <a class="page-link" href="#">下一页</a>
+                    {% endif %}
+                </li>
+            </ul>
+        </nav>
+    {% endif %}
+{% endmacro %}
+
+{% macro empty_state(text='暂无数据') %}
+    <div class="text-center text-muted py-5">
+        <i class="bi bi-inbox fs-1"></i>
+        <p class="mb-0">{{ text }}</p>
+    </div>
+{% endmacro %}
+
+{% macro page_header(title, subtitle='') %}
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h4 class="mb-0">{{ title }}{% if subtitle %} <small class="text-muted fs-6">{{ subtitle }}</small>{% endif %}</h4>
+        <div>{{ caller() }}</div>
+    </div>
+{% endmacro %}

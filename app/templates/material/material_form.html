@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}{{ title }} - 工厂管理系统{% endblock %}
+{% block content %}
+<h4 class="mb-3">{{ title }}{% if target %} <small class="text-muted fs-6">{{ target.code }}</small>{% endif %}</h4>
+<div class="card shadow-sm">
+    <div class="card-body">
+        <form method="POST" class="row g-3">
+            {{ form.hidden_tag() }}
+            <div class="col-md-3">
+                {{ form.code.label(class="form-label") }}
+                {{ form.code(class="form-control") }}
+                {% for err in form.code.errors %}<div class="text-danger small">{{ err }}</div>{% endfor %}
+            </div>
+            <div class="col-md-3">
+                {{ form.name.label(class="form-label") }}
+                {{ form.name(class="form-control") }}
+                {% for err in form.name.errors %}<div class="text-danger small">{{ err }}</div>{% endfor %}
+            </div>
+            <div class="col-md-3">
+                {{ form.spec.label(class="form-label") }}
+                {{ form.spec(class="form-control") }}
+                {% for err in form.spec.errors %}<div class="text-danger small">{{ err }}</div>{% endfor %}
+            </div>
+            <div class="col-md-3">
+                {{ form.unit.label(class="form-label") }}
+                {{ form.unit(class="form-control") }}
+                {% for err in form.unit.errors %}<div class="text-danger small">{{ err }}</div>{% endfor %}
+            </div>
+            <div class="col-md-6">
+                {{ form.storage_location.label(class="form-label") }}
+                {{ form.storage_location(class="form-control", placeholder="如：原材料仓 A区-03排-2层") }}
+                {% for err in form.storage_location.errors %}<div class="text-danger small">{{ err }}</div>{% endfor %}
+                <div class="form-text">记录该物料存放在哪个仓库的什么货位，出入库选择物料时会带出提示</div>
+            </div>
+            <div class="col-md-3">
+                {{ form.category_id.label(class="form-label") }}
+                {{ form.category_id(class="form-select") }}
+            </div>
+            <div class="col-12">
+                {{ form.submit(class="btn btn-primary") }}
+                <a class="btn btn-outline-secondary" href="{{ url_for('material.material_list') }}">返回</a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

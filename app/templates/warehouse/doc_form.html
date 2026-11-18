@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}出入库录入 - 工厂管理系统{% endblock %}
+{% block content %}
+<h4 class="mb-3">出入库录入 <small class="text-muted fs-6">单物料/单，库存随单据同事务增减</small></h4>
+<div class="card shadow-sm">
+    <div class="card-body">
+        <form method="POST" class="row g-3">
+            {{ form.hidden_tag() }}
+            <div class="col-md-3">
+                {{ form.doc_type.label(class="form-label") }}
+                {{ form.doc_type(class="form-select") }}
+                {% for err in form.doc_type.errors %}<div class="text-danger small">{{ err }}</div>{% endfor %}
+            </div>
+            <div class="col-md-3">
+                {{ form.warehouse_id.label(class="form-label") }}
+                {{ form.warehouse_id(class="form-select") }}
+                {% for err in form.warehouse_id.errors %}<div class="text-danger small">{{ err }}</div>{% endfor %}
+            </div>
+            <div class="col-md-3">
+                {{ form.material_id.label(class="form-label") }}
+                {{ form.material_id(class="form-select") }}
+                {% for err in form.material_id.errors %}<div class="text-danger small">{{ err }}</div>{% endfor %}
+            </div>
+            <div class="col-md-3">
+                {{ form.quantity.label(class="form-label") }}
+                {{ form.quantity(class="form-control", type="number", min=1) }}
+                {% for err in form.quantity.errors %}<div class="text-danger small">{{ err }}</div>{% endfor %}
+            </div>
+            <div class="col-md-4" id="relatedOrderGroup">
+                {{ form.related_order_id.label(class="form-label") }}
+                {{ form.related_order_id(class="form-select") }}
+            </div>
+            <div class="col-md-8">
+                {{ form.remark.label(class="form-label") }}
+                {{ form.remark(class="form-control") }}
+                {% for err in form.remark.errors %}<div class="text-danger small">{{ err }}</div>{% endfor %}
+            </div>
+            <div class="col-12">
+                {{ form.submit(class="btn btn-primary") }}
+                <a class="btn btn-outline-secondary" href="{{ url_for('warehouse.doc_list') }}">单据流水</a>
+            </div>
+        </form>
+    </div>
+</div>
+<script>
+    // P1-08：仅出库单显示"关联工单"
+    function toggleRelatedOrder() {
+        var t = document.getElementById('doc_type');
+        var grp = document.getElementById('relatedOrderGroup');
+        var sel = document.getElementById('related_order_id');
+        if (!t || !grp) return;
+        grp.style.display = (t.value === 'out') ? '' : 'none';
+        if (t.value !== 'out' && sel) { sel.value = '0'; }
+    }
+    document.addEventListener('DOMContentLoaded', function () {
+        var t = document.getElementById('doc_type');
+        if (t) { t.addEventListener('change', toggleRelatedOrder); toggleRelatedOrder(); }
+    });
+</script>
+{% endblock %}

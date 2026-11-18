@@ -1,49 +1,175 @@
 <!DOCTYPE html>
-<html lang="zh">
+<html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>课程报告查重系统</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <title>{% block title %}工厂管理系统{% endblock %}</title>
+    <link href="{{ url_for('static', filename='vendor/bootstrap.min.css') }}" rel="stylesheet">
+    <link href="{{ url_for('static', filename='vendor/bootstrap-icons.min.css') }}" rel="stylesheet">
+    <style>
+        body { min-height: 100vh; }
+        .sidebar { position: fixed; top: 56px; bottom: 0; left: 0; z-index: 100; width: 220px;
+                   overflow-y: auto; border-right: 1px solid #eee; }
+        .sidebar .nav-link { color: #333; }
+        .sidebar .nav-link.active, .sidebar .nav-link:hover { color: #0d6efd; background: #f0f6ff; }
+        .sidebar .group-toggle { cursor: pointer; }
+        .sidebar .group-toggle .menu-caret { transition: transform .2s ease; }
+        .sidebar .group-toggle[aria-expanded="false"] .menu-caret { transform: rotate(-90deg); }
+        .sidebar .collapse:not(.show) { display: none; }
+        main.content { margin-left: 220px; }
+        @media (max-width: 767.98px) {
+            .sidebar { display: none; }
+            main.content { margin-left: 0; }
+        }
+    </style>
+    {% block head %}{% endblock %}
 </head>
-<body>
-    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
-        <div class="container">
-            <a class="navbar-brand" href="{{ url_for('main.index') }}">课程报告查重系统</a>
-            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
-                <span class="navbar-toggler-icon"></span>
-            </button>
-            <div class="collapse navbar-collapse" id="navbarNav">
-                <ul class="navbar-nav ms-auto">
-                    {% if current_user.is_authenticated %}
-                        <li class="nav-item"><a class="nav-link" href="{{ url_for('paper.upload') }}">上传课程报告</a></li>
-                        <li class="nav-item"><a class="nav-link" href="{{ url_for('history.history') }}">历史记录</a></li>
-                        <li class="nav-item"><a class="nav-link" href="{{ url_for('auth.profile') }}">{{ current_user.username }}</a></li>
-                        <li class="nav-item"><a class="nav-link" href="{{ url_for('auth.logout') }}">注销</a></li>
-                    {% else %}
-                        <li class="nav-item"><a class="nav-link" href="{{ url_for('auth.login') }}">登录</a></li>
-                        <li class="nav-item"><a class="nav-link" href="{{ url_for('auth.register') }}">注册</a></li>
-                    {% endif %}
+<body class="bg-light">
+{% if current_user.is_authenticated %}
+    <!-- 顶部栏 -->
+    <nav class="navbar navbar-dark bg-primary fixed-top flex-md-nowrap p-0 shadow" style="height:56px;">
+        <a class="navbar-brand col-md-2 col-6 m-0 px-3 text-truncate" href="{{ url_for('main.index') }}">
+            <i class="bi bi-building-gear"></i> 工厂管理系统
+        </a>
+        <div class="navbar-nav flex-row ms-auto pe-3 align-items-center">
+            <a class="nav-link position-relative px-3 text-white" href="{{ url_for('chat.index') }}" title="站内消息">
+                <i class="bi bi-bell fs-5"></i>
+                <span id="chatBadge" class="position-absolute translate-middle badge rounded-pill bg-danger d-none"
+                      style="top:8px;left:calc(100% - 14px);">0</span>
+            </a>
+            <div class="nav-item dropdown">
+                <a class="nav-link dropdown-toggle text-white" href="#" data-bs-toggle="dropdown">
+                    <i class="bi bi-person-circle"></i>
+                    {{ current_user.display_name() }}{% if current_user.department %}（{{ current_user.department.name }}）{% endif %}
+                </a>
+                <ul class="dropdown-menu dropdown-menu-end">
+                    <li><a class="dropdown-item" href="{{ url_for('auth.profile') }}"><i class="bi bi-person"></i> 个人信息</a></li>
+                    <li><hr class="dropdown-divider"></li>
+                    <li><a class="dropdown-item" href="{{ url_for('auth.logout') }}"><i class="bi bi-box-arrow-right"></i> 退出登录</a></li>
                 </ul>
             </div>
         </div>
     </nav>
 
-    <div class="container mt-4">
-        {% with messages = get_flashed_messages(with_categories=true) %}
-            {% if messages %}
-                {% for category, message in messages %}
-                    <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
-                        {{ message }}
-                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-                    </div>
-                {% endfor %}
-            {% endif %}
-        {% endwith %}
+    <div class="container-fluid" style="padding-top:56px;">
+        <div class="row">
+            <!-- 左侧权限导航 -->
+            <nav id="sidebar" class="col-md-2 d-md-block bg-white sidebar collapse pt-3 pb-5">
+                <ul class="nav flex-column">
+                    {% for item in current_menu %}
+                        {% if item.children %}
+                            {% set group_id = 'menu-group-' ~ loop.index %}
+                            <li class="nav-item">
+                                <a class="nav-link text-muted fw-bold small pt-3 group-toggle d-flex justify-content-between align-items-center"
+                                   href="javascript:void(0)" data-collapse-target="{{ group_id }}"
+                                   aria-expanded="true"
+                                   aria-controls="{{ group_id }}">
+                                    <span><i class="bi {{ item.icon }}"></i> {{ item.name }}</span>
+                                    <i class="bi bi-chevron-down menu-caret small"></i>
+                                </a>
+                                <div class="collapse show" id="{{ group_id }}">
+                                    <ul class="nav flex-column ms-3">
+                                        {% for sub in item.children %}
+                                            <li class="nav-item">
+                                                <a class="nav-link py-1 {% if request.endpoint == sub.endpoint %}active fw-bold{% endif %}"
+                                                   href="{{ url_for(sub.endpoint) }}">{{ sub.name }}</a>
+                                            </li>
+                                        {% endfor %}
+                                    </ul>
+                                </div>
+                            </li>
+                        {% else %}
+                            <li class="nav-item">
+                                <a class="nav-link {% if request.endpoint == item.endpoint %}active fw-bold{% endif %}"
+                                   href="{{ url_for(item.endpoint) }}">
+                                    <i class="bi {{ item.icon }}"></i> {{ item.name }}
+                                </a>
+                            </li>
+                        {% endif %}
+                    {% endfor %}
+                </ul>
+            </nav>
 
-        {% block content %}{% endblock %}
+            <!-- 主内容区 -->
+            <main class="col-md-10 ms-sm-auto content px-4 py-3">
+                {% include '_flashes.html' %}
+                {% block content %}{% endblock %}
+            </main>
+        </div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // 侧边栏分组折叠（纯原生实现，不依赖 Bootstrap JS，避免 CDN 不可达时失效）
+        document.addEventListener('DOMContentLoaded', function () {
+            var STORAGE_KEY = 'factorySidebarCollapsed';
+            var collapsed = {};
+            try { collapsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}') || {}; } catch (e) { collapsed = {}; }
+
+            var toggles = document.querySelectorAll('#sidebar .group-toggle');
+            toggles.forEach(function (link) {
+                var groupId = link.getAttribute('data-collapse-target');
+                var panel = document.getElementById(groupId);
+                if (!panel) { return; }
+
+                // 应用折叠状态：toggle 'show' 类 + 同步箭头方向
+                function applyState(isCollapsed) {
+                    if (isCollapsed) {
+                        panel.classList.remove('show');
+                        link.setAttribute('aria-expanded', 'false');
+                    } else {
+                        panel.classList.add('show');
+                        link.setAttribute('aria-expanded', 'true');
+                    }
+                }
+
+                // 恢复上次状态
+                applyState(!!collapsed[groupId]);
+
+                // 点击切换：当前展开则收起，当前收起则展开
+                link.addEventListener('click', function (e) {
+                    e.preventDefault();
+                    var shouldCollapse = panel.classList.contains('show');
+                    applyState(shouldCollapse);
+                    collapsed[groupId] = shouldCollapse;
+                    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(collapsed)); } catch (err) {}
+                });
+            });
+        });
+
+        // 站内消息未读角标：13 秒轮询 /chat/api/unread
+        function refreshUnreadBadge() {
+            fetch('{{ url_for("chat.api_unread") }}')
+                .then(function (resp) { return resp.json(); })
+                .then(function (json) {
+                    if (json && json.code === 0) {
+                        var badge = document.getElementById('chatBadge');
+                        if (!badge) { return; }
+                        // P1 角标 = 聊天未读 + 库存预警未读（服务端聚合 total）
+                        var n = json.data.total != null ? json.data.total : (json.data.count || 0);
+                        badge.textContent = n > 99 ? '99+' : String(n);
+                        badge.classList.toggle('d-none', n === 0);
+                    }
+                })
+                .catch(function () { /* 忽略轮询错误 */ });
+        }
+        setInterval(refreshUnreadBadge, 13000);
+        refreshUnreadBadge();
+    </script>
+{% else %}
+    <!-- 未登录：简洁顶栏 -->
+    <nav class="navbar navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="{{ url_for('auth.login') }}">
+                <i class="bi bi-building-gear"></i> 工厂管理系统
+            </a>
+        </div>
+    </nav>
+    <div class="container mt-4">
+        {% include '_flashes.html' %}
+        {% block anonymous_content %}{% endblock %}
+    </div>
+{% endif %}
+<script src="{{ url_for('static', filename='vendor/bootstrap.bundle.min.js') }}"></script>
+{% block scripts %}{% endblock %}
 </body>
 </html>

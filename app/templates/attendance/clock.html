@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}考勤打卡 - 工厂管理系统{% endblock %}
+{% block content %}
+<h4 class="mb-3">考勤打卡</h4>
+<div class="row justify-content-center">
+    <div class="col-md-6">
+        <div class="card shadow-sm text-center">
+            <div class="card-body p-4">
+                <p class="text-muted mb-1">今天是 {{ work_date | fmt_date }}</p>
+                {% if record and record.check_in_at %}
+                    <p class="mb-1">今日签到：<span class="text-success fw-bold">{{ record.check_in_at | fmt_dt }}</span></p>
+                {% else %}
+                    <p class="mb-1">今日尚未签到</p>
+                {% endif %}
+                {% if record and record.check_out_at %}
+                    <p class="mb-3">今日签退：<span class="text-primary fw-bold">{{ record.check_out_at | fmt_dt }}</span></p>
+                {% else %}
+                    <p class="mb-3 text-muted">今日尚未签退</p>
+                {% endif %}
+                <form method="POST" class="d-inline">
+                    {{ form.hidden_tag() }}
+                    <input type="hidden" name="action" value="in">
+                    <button class="btn btn-success btn-lg px-5" type="submit" {% if record and record.check_in_at %}disabled{% endif %}>
+                        <i class="bi bi-box-arrow-in-right"></i> 签 到
+                    </button>
+                </form>
+                <form method="POST" class="d-inline ms-3">
+                    {{ form.hidden_tag() }}
+                    <input type="hidden" name="action" value="out">
+                    <button class="btn btn-outline-primary btn-lg px-5" type="submit" {% if not record or not record.check_in_at or record.check_out_at %}disabled{% endif %}>
+                        <i class="bi bi-box-arrow-right"></i> 签 退
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card shadow-sm mt-4">
+    <div class="card-header bg-white"><i class="bi bi-clock-history"></i> 我的近期打卡</div>
+    <div class="card-body p-0">
+        <table class="table table-hover mb-0 align-middle">
+            <thead class="table-light"><tr><th>日期</th><th>签到时间</th><th>签退时间</th></tr></thead>
+            <tbody>
+            {% for rec in recent %}
+                <tr>
+                    <td>{{ rec.work_date | fmt_date }}</td>
+                    <td>{{ rec.check_in_at | fmt_dt }}</td>
+                    <td>{{ rec.check_out_at | fmt_dt }}</td>
+                </tr>
+            {% else %}
+                <tr><td colspan="3" class="text-center text-muted py-4">暂无打卡记录</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

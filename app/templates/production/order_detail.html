@@ -1,0 +1,381 @@
+{% extends "base.html" %}
+{% block title %}工单详情 - 工厂管理系统{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h4 class="mb-0">工单 {{ order.order_no }}
+        <span class="badge bg-secondary align-middle">{{ status_labels.get(order.status, order.status) }}</span>
+    </h4>
+    <div>
+        {% if 'production.manage' in current_user|perm_codes %}
+            {% set next_status = order.next_status() %}
+            {% if next_status %}
+                <form class="d-inline" method="POST" action="{{ url_for('production.order_status', order_id=order.id) }}"
+                      onsubmit="return confirm('确认流转为「{{ status_labels.get(next_status) }}」？');">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="status" value="{{ next_status }}">
+                    <button class="btn btn-primary" type="submit">
+                        流转至「{{ status_labels.get(next_status) }}」<i class="bi bi-arrow-right"></i>
+                    </button>
+                </form>
+            {% endif %}
+            <a class="btn btn-outline-primary" href="{{ url_for('production.order_edit', order_id=order.id) }}">编辑</a>
+        {% endif %}
+        {% if 'production.issue' in current_user|perm_codes and can_issue %}
+            <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#issueModal">
+                <i class="bi bi-box-arrow-left"></i> 领料
+            </button>
+        {% endif %}
+        <a class="btn btn-outline-secondary" href="{{ url_for('production.order_list') }}">返回</a>
+    </div>
+</div>
+
+<div class="card shadow-sm mb-3">
+    <div class="card-header bg-white"><i class="bi bi-info-circle"></i> 工单信息</div>
+    <div class="card-body">
+        <div class="row">
+            <div class="col-md-3"><span class="text-muted">产品名称：</span>{{ order.product_name }}</div>
+            <div class="col-md-2"><span class="text-muted">数量：</span>{{ order.quantity }}</div>
+            <div class="col-md-2"><span class="text-muted">交期：</span>{{ order.due_date | fmt_date }}</div>
+            <div class="col-md-2"><span class="text-muted">负责人：</span>{{ order.leader.display_name() if order.leader else '-' }}</div>
+            <div class="col-md-3"><span class="text-muted">创建：</span>{{ order.creator.display_name() if order.creator else '-' }} · {{ order.created_at | fmt_dt }}</div>
+        </div>
+        {% if order.remark %}<div class="mt-2"><span class="text-muted">备注：</span>{{ order.remark }}</div>{% endif %}
+    </div>
+</div>
+
+<!-- 质量记录（P2-6）：进行中/已完成工单可记录，待开始仅为计划态 -->
+<div class="card shadow-sm mb-3">
+    <div class="card-header bg-white d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-clipboard2-check"></i> 质量记录</span>
+        <span class="badge bg-light text-dark border">
+            成品 {{ order.output_qty or 0 }} · 良率 {{ '%.2f'|format(order.yield_rate or 0) }}% · 不良率 {{ '%.2f'|format(order.defect_rate or 0) }}%
+        </span>
+    </div>
+    <div class="card-body">
+        <div class="row mb-2">
+            <div class="col-md-2"><span class="text-muted">合格数量：</span>{{ order.good_qty or 0 }}</div>
+            <div class="col-md-2"><span class="text-muted">不良数量：</span>{{ order.defect_qty or 0 }}</div>
+            <div class="col-md-3"><span class="text-muted">不良原因：</span>{{ order.defect_reason.name if order.defect_reason else '-' }}</div>
+            <div class="col-md-5"><span class="text-muted">记录：</span>{{ order.quality_recorder.display_name() if order.quality_recorder else '-' }}{% if order.quality_recorded_at %} · {{ order.quality_recorded_at | fmt_dt }}{% endif %}</div>
+        </div>
+        {% if order.quality_remark %}<div class="mb-2"><span class="text-muted">质量备注：</span>{{ order.quality_remark }}</div>{% endif %}
+        {% if can_record_quality and 'production.manage' in current_user|perm_codes %}
+            <form method="POST" class="row g-2 border-top pt-3"
+                  action="{{ url_for('production.order_quality', order_id=order.id) }}">
+                {{ quality_form.hidden_tag() }}
+                <div class="col-md-2">
+                    <label class="form-label">成品数量</label>
+                    {{ quality_form.output_qty(class='form-control', type='number', min=0, id='qualityOutput') }}
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">合格数量</label>
+                    {{ quality_form.good_qty(class='form-control', type='number', min=0, id='qualityGood', oninput='syncQualityOutput()') }}
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">不良数量</label>
+                    {{ quality_form.defect_qty(class='form-control', type='number', min=0, id='qualityDefect', oninput='syncQualityOutput()') }}
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">不良原因（主数据）</label>
+                    {{ quality_form.defect_reason_id(class='form-select') }}
+                    <a class="small" href="{{ url_for('production.defect_reason_list') }}">维护不良原因</a>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">质量备注</label>
+                    {{ quality_form.quality_remark(class='form-control', placeholder='如：来料批次异常') }}
+                </div>
+                <div class="col-12 small text-muted">良率/不良率由系统按数量自动计算；成品数量 = 合格数量 + 不良数量。</div>
+                <div class="col-12">{{ quality_form.submit(class='btn btn-sm btn-outline-primary') }}</div>
+                {% for field in (quality_form.output_qty, quality_form.good_qty, quality_form.defect_qty, quality_form.defect_reason_id) %}
+                    {% for err in field.errors %}<div class="col-12 text-danger small">{{ err }}</div>{% endfor %}
+                {% endfor %}
+            </form>
+        {% elif 'production.manage' in current_user|perm_codes %}
+            <div class="text-muted small border-top pt-2">工单尚未开始或已结束，质量记录只在「进行中/已完成」状态可录入。</div>
+        {% endif %}
+    </div>
+</div>
+
+{% if 'production.manage' in current_user|perm_codes %}
+    <div class="card shadow-sm mb-3">
+        <div class="card-header bg-white"><i class="bi bi-plus-lg"></i> 添加工序
+            <span class="text-muted small ms-2">仅可从已维护工序档案中选择</span>
+            <a class="btn btn-sm btn-outline-secondary float-end" href="{{ url_for('production.process_list') }}">
+                <i class="bi bi-gear"></i> 维护工序档案</a>
+        </div>
+        <div class="card-body">
+            <form method="POST" class="row g-2" action="{{ url_for('production.step_new', order_id=order.id) }}">
+                {{ step_form.hidden_tag() }}
+                <div class="col-md-4">
+                    {{ step_form.process_id.label(class="form-label") }}
+                    {{ step_form.process_id(class="form-select") }}
+                    {% for err in step_form.process_id.errors %}<div class="text-danger small">{{ err }}</div>{% endfor %}
+                </div>
+                <div class="col-md-2">
+                    {{ step_form.seq.label(class="form-label") }}
+                    {{ step_form.seq(class="form-control", type="number", min=1) }}
+                    {% for err in step_form.seq.errors %}<div class="text-danger small">{{ err }}</div>{% endfor %}
+                </div>
+                <div class="col-md-2">
+                    {{ step_form.operator_id.label(class="form-label") }}
+                    {{ step_form.operator_id(class="form-select") }}
+                </div>
+                <div class="col-md-3">
+                    {{ step_form.remark.label(class="form-label") }}
+                    {{ step_form.remark(class="form-control", placeholder="备注") }}
+                </div>
+                <div class="col-auto d-flex align-items-end">
+                    {{ step_form.submit(class="btn btn-outline-primary") }}
+                </div>
+            </form>
+        </div>
+    </div>
+{% endif %}
+
+<div class="card shadow-sm">
+    <div class="card-header bg-white d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-list-check"></i> 工序步骤（时间线）</span>
+        <span class="badge bg-info text-dark">总消耗工时 {{ '%.2f'|format(total_hours or 0) }} h</span>
+    </div>
+    <div class="card-body">
+        {% if not can_run_steps %}
+            <div class="alert alert-light border small py-2 mb-3">
+                <i class="bi bi-lock"></i> 工单当前为「{{ status_labels.get(order.status, order.status) }}」状态，
+                工序流转与工时修正已锁定；待开始是计划态，请先将工单流转至「进行中」。
+                {% if order.status == 'in_progress' %}工单进行中，工序也不允许删除。{% endif %}
+            </div>
+        {% endif %}
+        {% if order.steps %}
+            <ul class="list-group list-group-flush">
+                {% for step in order.steps %}
+                    <li class="list-group-item d-flex justify-content-between align-items-center px-0">
+                        <div>
+                            <span class="fw-bold">{{ step.seq }}. {{ step.name }}</span>
+                            {% if step.status == 'pending' %}<span class="badge bg-secondary ms-2">{{ step.STATUS_LABELS[step.status] }}</span>
+                            {% elif step.status == 'in_progress' %}<span class="badge bg-primary ms-2">{{ step.STATUS_LABELS[step.status] }}</span>
+                            {% else %}<span class="badge bg-success ms-2">{{ step.STATUS_LABELS[step.status] }}</span>{% endif %}
+                            <span class="badge bg-light text-dark border ms-1" title="消耗工时">
+                                <i class="bi bi-stopwatch"></i> {{ step.total_hours_display }} h
+                            </span>
+                            <div class="text-muted small mt-1">
+                                操作人：{{ step.operator.display_name() if step.operator else '-' }}
+                                {% if step.started_at %} · 开始 {{ step.started_at | fmt_dt }}{% endif %}
+                                {% if step.finished_at %} · 完成 {{ step.finished_at | fmt_dt }}{% endif %}
+                                {% if step.remark %} · {{ step.remark }}{% endif %}
+                            </div>
+                        </div>
+                        {% if 'production.manage' in current_user|perm_codes %}
+                            <div>
+                                {% set step_next = step.next_status() %}
+                                {% if can_run_steps and step_next %}
+                                    <form class="d-inline" method="POST" action="{{ url_for('production.step_status', step_id=step.id) }}">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                        <input type="hidden" name="status" value="{{ step_next }}">
+                                        <button class="btn btn-sm btn-outline-primary" type="submit">→ {{ step.STATUS_LABELS[step_next] }}</button>
+                                    </form>
+                                {% endif %}
+                                {% if can_run_steps and step.status == 'completed' %}
+                                    <button class="btn btn-sm btn-outline-info" type="button"
+                                            data-bs-toggle="modal" data-bs-target="#laborModal{{ step.id }}"
+                                            title="修正实际消耗工时">修工时</button>
+                                {% endif %}
+                                {% if step.status == 'pending' and order.status != 'in_progress' %}
+                                    <form class="d-inline" method="POST" action="{{ url_for('production.step_delete', step_id=step.id) }}"
+                                          onsubmit="return confirm('删除该工序？可在回收站恢复。');">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                        <button class="btn btn-sm btn-outline-danger" type="submit">删除</button>
+                                    </form>
+                                {% elif step.status == 'pending' and order.status == 'in_progress' %}
+                                    <button class="btn btn-sm btn-outline-danger disabled" type="button"
+                                            title="工单进行中，工序不允许删除">删除</button>
+                                {% endif %}
+                            </div>
+                        {% endif %}
+                    </li>
+                {% endfor %}
+            </ul>
+        {% else %}
+            <p class="text-center text-muted mb-0 py-3">暂无工序，请先添加</p>
+        {% endif %}
+    </div>
+</div>
+
+{% if 'production.manage' in current_user|perm_codes %}
+    {% for step in order.steps %}
+        {% if can_run_steps and step.status == 'completed' %}
+<div class="modal fade" id="laborModal{{ step.id }}" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+      <form method="POST" action="{{ url_for('production.step_labor', step_id=step.id) }}">
+        {{ labor_form.hidden_tag() }}
+        <div class="modal-header"><h5 class="modal-title">修正工时 · {{ step.name }}</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body">
+            <div class="mb-2 text-muted small">
+                起止：{{ step.started_at | fmt_dt if step.started_at else '-' }} → {{ step.finished_at | fmt_dt if step.finished_at else '-' }}
+                （自动 {{ step.auto_labor_hours()|round(2) }} h）
+            </div>
+            <div class="mb-2">
+                <label class="form-label">消耗工时(小时)</label>
+                <input class="form-control" type="number" step="0.01" min="0" name="labor_hours"
+                       value="{{ '%.2f'|format(step.labor_hours or 0) }}" required>
+            </div>
+            <div class="mb-2">
+                <label class="form-label">备注</label>
+                <input class="form-control" name="remark" value="{{ step.remark or '' }}">
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">取消</button>
+            <button type="submit" class="btn btn-primary btn-sm">保存</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+        {% endif %}
+    {% endfor %}
+{% endif %}
+
+<!-- 物料领用区（P1-05/P1-08）-->
+<div class="card shadow-sm mt-3">
+    <div class="card-header bg-white"><i class="bi bi-box-seam"></i> 物料领用（关联出库单）</div>
+    <div class="card-body p-0">
+        <table class="table table-hover mb-0 align-middle">
+            <thead class="table-light"><tr><th>单据号</th><th>物料</th><th>仓库</th><th>数量</th><th>经手人</th><th>时间</th></tr></thead>
+            <tbody>
+            {% for doc in issue_docs %}
+                <tr>
+                    <td><a href="{{ url_for('warehouse.doc_list') }}">{{ doc.doc_no }}</a></td>
+                    <td>{{ doc.material.name if doc.material else '-' }}</td>
+                    <td>{{ doc.warehouse.name if doc.warehouse else '-' }}</td>
+                    <td>{{ doc.quantity }}</td>
+                    <td>{{ doc.handler.display_name() if doc.handler else '-' }}</td>
+                    <td>{{ doc.created_at | fmt_dt }}</td>
+                </tr>
+            {% else %}
+                <tr><td colspan="6" class="text-center text-muted py-3">暂无领料记录</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- 操作日志页签（P1-06，复用 OperationLog）-->
+<div class="card shadow-sm mt-3">
+    <div class="card-header bg-white"><i class="bi bi-clock-history"></i> 操作日志</div>
+    <div class="card-body p-0">
+        <ul class="list-group list-group-flush">
+            {% for log in op_logs %}
+                <li class="list-group-item d-flex justify-content-between align-items-center px-3">
+                    <div>
+                        <span class="badge bg-secondary">{{ log.action_label }}</span>
+                        {{ log.summary }}
+                    </div>
+                    <div class="text-muted small">{{ log.operator_name }} · {{ log.created_at | fmt_dt }}</div>
+                </li>
+            {% else %}
+                <li class="list-group-item text-center text-muted py-3">暂无操作记录</li>
+            {% endfor %}
+        </ul>
+    </div>
+</div>
+
+<!-- 领料弹窗（P1-05）-->
+{% if 'production.issue' in current_user|perm_codes and can_issue %}
+<div class="modal fade" id="issueModal" tabindex="-1" aria-labelledby="issueModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="POST" action="{{ url_for('production.order_issue', order_id=order.id) }}">
+        {{ issue_form.hidden_tag() }}
+        <div class="modal-header"><h5 class="modal-title" id="issueModalLabel">工单领料</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body">
+            <div class="mb-3"><label class="form-label">仓库</label>{{ issue_form.warehouse_id(class='form-select', id='issueWarehouse') }}</div>
+            <div class="mb-3"><label class="form-label">物料</label>{{ issue_form.material_id(class='form-select', id='issueMaterial') }}</div>
+            <div class="alert alert-light border mb-3 py-2" id="stockInfo">
+                <i class="bi bi-info-circle"></i> 选择仓库和物料后显示当前可用余量
+            </div>
+            <div class="mb-3"><label class="form-label">数量</label>
+                {{ issue_form.quantity(class='form-control', type='number', min=1, id='issueQuantity') }}
+                <div class="text-danger small" id="stockWarning" style="display:none;"></div>
+            </div>
+            <div class="mb-3"><label class="form-label">备注</label>{{ issue_form.remark(class='form-control') }}</div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+            {{ issue_form.submit(class='btn btn-success', id='issueSubmit') }}
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+    var wh = document.getElementById('issueWarehouse');
+    var mat = document.getElementById('issueMaterial');
+    var qty = document.getElementById('issueQuantity');
+    var info = document.getElementById('stockInfo');
+    var warn = document.getElementById('stockWarning');
+    var submit = document.getElementById('issueSubmit');
+    if (!wh || !mat || !qty || !info) { return; }
+    var available = null;
+
+    function check() {
+        if (available === null) { return; }
+        var n = parseInt(qty.value, 10);
+        if (!isNaN(n) && n > available) {
+            warn.textContent = '库存不足：当前仅 ' + available + '，还差 ' + (n - available);
+            warn.style.display = 'block';
+            if (submit) { submit.disabled = true; }
+        } else {
+            warn.style.display = 'none';
+            if (submit) { submit.disabled = false; }
+        }
+    }
+
+    function loadStock() {
+        available = null;
+        info.innerHTML = '<i class="bi bi-hourglass-split"></i> 正在查询余量…';
+        if (submit) { submit.disabled = false; }
+        warn.style.display = 'none';
+        if (!wh.value || !mat.value) {
+            info.innerHTML = '<i class="bi bi-info-circle"></i> 选择仓库和物料后显示当前可用余量';
+            return;
+        }
+        fetch('{{ url_for("production.api_stock") }}?warehouse_id=' + wh.value + '&material_id=' + mat.value)
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+                if (d.ok) {
+                    available = d.available;
+                    info.innerHTML = '<i class="bi bi-box-seam"></i> 【' + d.warehouse + ' / ' +
+                        d.material + '】当前可用余量：<strong>' + d.available + '</strong>';
+                    check();
+                } else {
+                    info.innerHTML = '<i class="bi bi-exclamation-triangle"></i> ' + d.message;
+                }
+            })
+            .catch(function () {
+                info.innerHTML = '<i class="bi bi-exclamation-triangle"></i> 余量查询失败，提交时仍会服务端校验';
+            });
+    }
+
+    wh.addEventListener('change', loadStock);
+    mat.addEventListener('change', loadStock);
+    qty.addEventListener('input', check);
+    qty.addEventListener('change', check);
+    loadStock();
+})();
+</script>
+{% endif %}
+<script>
+function syncQualityOutput() {
+    var good = parseInt(document.getElementById('qualityGood').value, 10);
+    var defect = parseInt(document.getElementById('qualityDefect').value, 10);
+    var output = document.getElementById('qualityOutput');
+    if (!output) { return; }
+    if (isNaN(good) && isNaN(defect)) { output.value = ''; return; }
+    output.value = (isNaN(good) ? 0 : good) + (isNaN(defect) ? 0 : defect);
+}
+</script>
+{% endblock %}

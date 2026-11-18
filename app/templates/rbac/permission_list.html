@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}权限点总览 - 工厂管理系统{% endblock %}
+{% block content %}
+<h4 class="mb-3">权限点总览 <small class="text-muted fs-6">来自 PERMISSION_REGISTRY，只读</small></h4>
+<div class="row">
+    {% for module, perms in registry.items() %}
+        <div class="col-md-4 mb-3">
+            <div class="card shadow-sm h-100">
+                <div class="card-header bg-white fw-bold">{{ module }}</div>
+                <div class="card-body p-0">
+                    <table class="table table-sm mb-0">
+                        <tbody>
+                        {% for code, name in perms.items() %}
+                            <tr><td><code>{{ code }}</code></td><td>{{ name }}</td></tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    {% endfor %}
+</div>
+{% endblock %}
