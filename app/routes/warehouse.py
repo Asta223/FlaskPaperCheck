@@ -13,7 +13,6 @@ from app.services.inventory_service import InsufficientStockError, InventoryServ
     apply_stock_document
 from app.services.log_service import log_operation
 from app.utils.permissions import permission_required
-from app.utils.time_utils import today
 
 bp = Blueprint('warehouse', __name__, url_prefix='/warehouse')
 
@@ -195,11 +194,8 @@ def ledger():
     material_id = request.args.get('material_id', type=int)
     warehouse_id = request.args.get('warehouse_id', type=int)
     doc_type = request.args.get('doc_type', '', type=str)
-    # 首次进入默认今天；用户显式清空（date_from=）则不过滤，可查看全部历史
-    date_from = request.args.get('date_from')
-    date_from = (date_from or '').strip() if date_from is not None else today().isoformat()
-    date_to = request.args.get('date_to')
-    date_to = (date_to or '').strip() if date_to is not None else today().isoformat()
+    date_from = (request.args.get('date_from') or '').strip()
+    date_to = (request.args.get('date_to') or '').strip()
 
     query = StockLedger.query
     if material_id:

@@ -3,8 +3,6 @@ from flask_wtf import FlaskForm
 from wtforms import DateField, IntegerField, SelectField, StringField, SubmitField, TextAreaField
 from wtforms.validators import DataRequired, Length, NumberRange, Optional
 
-from app.utils.time_utils import today
-
 
 def fill_department_choices(form) -> None:
     """运行时填充：归属部门下拉（P1-04）。"""
@@ -50,8 +48,7 @@ class WorkOrderForm(FlaskForm):
     quantity = IntegerField('数量', validators=[
         DataRequired(message='请输入数量'), NumberRange(min=1, message='数量必须大于0'),
     ])
-    due_date = DateField('交货日期', validators=[Optional()], format='%Y-%m-%d',
-                         default=today)
+    due_date = DateField('交货日期', validators=[Optional()], format='%Y-%m-%d')
     leader_id = SelectField('负责人', coerce=int, validators=[Optional()])
     related_department_id = SelectField('归属部门', coerce=int, validators=[Optional()],
                                         default=0)

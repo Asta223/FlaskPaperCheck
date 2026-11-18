@@ -6,7 +6,6 @@ from app import db
 from app.models.system import OperationLog
 from app.models.user import User
 from app.utils.permissions import permission_required
-from app.utils.time_utils import today
 
 bp = Blueprint('system', __name__, url_prefix='/system')
 
@@ -20,11 +19,8 @@ def operation_logs():
     module = (request.args.get('module') or '').strip()
     action = (request.args.get('action') or '').strip()
     operator_id = request.args.get('operator_id', type=int)
-    # 首次进入默认今天；用户显式清空（date_from=）则不过滤，可查看全部历史
-    date_from = request.args.get('date_from')
-    date_from = (date_from or '').strip() if date_from is not None else today().isoformat()
-    date_to = request.args.get('date_to')
-    date_to = (date_to or '').strip() if date_to is not None else today().isoformat()
+    date_from = (request.args.get('date_from') or '').strip()
+    date_to = (request.args.get('date_to') or '').strip()
 
     query = OperationLog.query
     if module:
