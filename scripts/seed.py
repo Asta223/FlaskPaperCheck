@@ -154,16 +154,16 @@ def seed_sample_data() -> None:
         db.session.add(cat2)
 
     sample_materials = [
-        ('M0001', '内六角螺丝', 'M8×30', '盒', '五金件', '原材料仓 A区-03排-2层'),
-        ('M0002', '轴承', '6204', '个', '五金件', '原材料仓 B区-01排-1层'),
-        ('M0003', '纸箱', '400×300×200', '个', '包装耗材', '成品仓 C区-02排'),
+        ('M0001', '内六角螺丝', 'M8×30', '盒', '五金件'),
+        ('M0002', '轴承', '6204', '个', '五金件'),
+        ('M0003', '纸箱', '400×300×200', '个', '包装耗材'),
     ]
-    for code, name, spec, unit, cat_name, location in sample_materials:
+    for code, name, spec, unit, cat_name in sample_materials:
         if Material.query.filter_by(code=code).first():
             continue
         category = MaterialCategory.query.filter_by(name=cat_name).first()
         db.session.add(Material(code=code, name=name, spec=spec, unit=unit,
-                                storage_location=location, category=category))
+                                category=category))
 
     # 仓库
     warehouse = Warehouse.query.filter_by(name='原材料仓').first()
