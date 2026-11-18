@@ -45,33 +45,25 @@
 
 {% if 'production.manage' in current_user|perm_codes %}
     <div class="card shadow-sm mb-3">
-        <div class="card-header bg-white"><i class="bi bi-plus-lg"></i> 添加工序
-            <span class="text-muted small ms-2">仅可从已维护工序档案中选择</span>
-            <a class="btn btn-sm btn-outline-secondary float-end" href="{{ url_for('production.process_list') }}">
-                <i class="bi bi-gear"></i> 维护工序档案</a>
-        </div>
+        <div class="card-header bg-white"><i class="bi bi-plus-lg"></i> 添加工序</div>
         <div class="card-body">
             <form method="POST" class="row g-2" action="{{ url_for('production.step_new', order_id=order.id) }}">
                 {{ step_form.hidden_tag() }}
                 <div class="col-md-4">
-                    {{ step_form.process_id.label(class="form-label") }}
-                    {{ step_form.process_id(class="form-select") }}
-                    {% for err in step_form.process_id.errors %}<div class="text-danger small">{{ err }}</div>{% endfor %}
+                    {{ step_form.name(class="form-control", placeholder="工序名称") }}
+                    {% for err in step_form.name.errors %}<div class="text-danger small">{{ err }}</div>{% endfor %}
                 </div>
                 <div class="col-md-2">
-                    {{ step_form.seq.label(class="form-label") }}
                     {{ step_form.seq(class="form-control", type="number", min=1) }}
                     {% for err in step_form.seq.errors %}<div class="text-danger small">{{ err }}</div>{% endfor %}
                 </div>
-                <div class="col-md-2">
-                    {{ step_form.operator_id.label(class="form-label") }}
+                <div class="col-md-3">
                     {{ step_form.operator_id(class="form-select") }}
                 </div>
-                <div class="col-md-3">
-                    {{ step_form.remark.label(class="form-label") }}
+                <div class="col-md-2">
                     {{ step_form.remark(class="form-control", placeholder="备注") }}
                 </div>
-                <div class="col-auto d-flex align-items-end">
+                <div class="col-auto">
                     {{ step_form.submit(class="btn btn-outline-primary") }}
                 </div>
             </form>
@@ -80,10 +72,7 @@
 {% endif %}
 
 <div class="card shadow-sm">
-    <div class="card-header bg-white d-flex justify-content-between align-items-center">
-        <span><i class="bi bi-list-check"></i> 工序步骤（时间线）</span>
-        <span class="badge bg-info text-dark">总消耗工时 {{ '%.2f'|format(total_hours or 0) }} h</span>
-    </div>
+    <div class="card-header bg-white"><i class="bi bi-list-check"></i> 工序步骤（时间线）</div>
     <div class="card-body">
         {% if order.steps %}
             <ul class="list-group list-group-flush">
@@ -94,9 +83,6 @@
                             {% if step.status == 'pending' %}<span class="badge bg-secondary ms-2">{{ step.STATUS_LABELS[step.status] }}</span>
                             {% elif step.status == 'in_progress' %}<span class="badge bg-primary ms-2">{{ step.STATUS_LABELS[step.status] }}</span>
                             {% else %}<span class="badge bg-success ms-2">{{ step.STATUS_LABELS[step.status] }}</span>{% endif %}
-                            <span class="badge bg-light text-dark border ms-1" title="消耗工时">
-                                <i class="bi bi-stopwatch"></i> {{ step.total_hours_display }} h
-                            </span>
                             <div class="text-muted small mt-1">
                                 操作人：{{ step.operator.display_name() if step.operator else '-' }}
                                 {% if step.started_at %} · 开始 {{ step.started_at | fmt_dt }}{% endif %}
@@ -113,11 +99,6 @@
                                         <input type="hidden" name="status" value="{{ step_next }}">
                                         <button class="btn btn-sm btn-outline-primary" type="submit">→ {{ step.STATUS_LABELS[step_next] }}</button>
                                     </form>
-                                {% endif %}
-                                {% if step.status == 'completed' %}
-                                    <button class="btn btn-sm btn-outline-info" type="button"
-                                            data-bs-toggle="modal" data-bs-target="#laborModal{{ step.id }}"
-                                            title="修正实际消耗工时">修工时</button>
                                 {% endif %}
                                 {% if step.status == 'pending' %}
                                     <form class="d-inline" method="POST" action="{{ url_for('production.step_delete', step_id=step.id) }}"
@@ -136,43 +117,6 @@
         {% endif %}
     </div>
 </div>
-
-{% if 'production.manage' in current_user|perm_codes %}
-    {% for step in order.steps %}
-        {% if step.status == 'completed' %}
-<div class="modal fade" id="laborModal{{ step.id }}" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-sm">
-    <div class="modal-content">
-      <form method="POST" action="{{ url_for('production.step_labor', step_id=step.id) }}">
-        {{ labor_form.hidden_tag() }}
-        <div class="modal-header"><h5 class="modal-title">修正工时 · {{ step.name }}</h5>
-            <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
-        <div class="modal-body">
-            <div class="mb-2 text-muted small">
-                起止：{{ step.started_at | fmt_dt if step.started_at else '-' }} → {{ step.finished_at | fmt_dt if step.finished_at else '-' }}
-                （自动 {{ step.auto_labor_hours()|round(2) }} h）
-            </div>
-            <div class="mb-2">
-                <label class="form-label">消耗工时(小时)</label>
-                <input class="form-control" type="number" step="0.01" min="0" name="labor_hours"
-                       value="{{ '%.2f'|format(step.labor_hours or 0) }}" required>
-            </div>
-            <div class="mb-2">
-                <label class="form-label">备注</label>
-                <input class="form-control" name="remark" value="{{ step.remark or '' }}">
-            </div>
-        </div>
-        <div class="modal-footer">
-            <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">取消</button>
-            <button type="submit" class="btn btn-primary btn-sm">保存</button>
-        </div>
-      </form>
-    </div>
-  </div>
-</div>
-        {% endif %}
-    {% endfor %}
-{% endif %}
 
 <!-- 物料领用区（P1-05/P1-08）-->
 <div class="card shadow-sm mt-3">
@@ -228,81 +172,18 @@
         <div class="modal-header"><h5 class="modal-title" id="issueModalLabel">工单领料</h5>
             <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
         <div class="modal-body">
-            <div class="mb-3"><label class="form-label">仓库</label>{{ issue_form.warehouse_id(class='form-select', id='issueWarehouse') }}</div>
-            <div class="mb-3"><label class="form-label">物料</label>{{ issue_form.material_id(class='form-select', id='issueMaterial') }}</div>
-            <div class="alert alert-light border mb-3 py-2" id="stockInfo">
-                <i class="bi bi-info-circle"></i> 选择仓库和物料后显示当前可用余量
-            </div>
-            <div class="mb-3"><label class="form-label">数量</label>
-                {{ issue_form.quantity(class='form-control', type='number', min=1, id='issueQuantity') }}
-                <div class="text-danger small" id="stockWarning" style="display:none;"></div>
-            </div>
+            <div class="mb-3"><label class="form-label">仓库</label>{{ issue_form.warehouse_id(class='form-select') }}</div>
+            <div class="mb-3"><label class="form-label">物料</label>{{ issue_form.material_id(class='form-select') }}</div>
+            <div class="mb-3"><label class="form-label">数量</label>{{ issue_form.quantity(class='form-control', type='number', min=1) }}</div>
             <div class="mb-3"><label class="form-label">备注</label>{{ issue_form.remark(class='form-control') }}</div>
         </div>
         <div class="modal-footer">
             <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
-            {{ issue_form.submit(class='btn btn-success', id='issueSubmit') }}
+            {{ issue_form.submit(class='btn btn-success') }}
         </div>
       </form>
     </div>
   </div>
 </div>
-<script>
-(function () {
-    var wh = document.getElementById('issueWarehouse');
-    var mat = document.getElementById('issueMaterial');
-    var qty = document.getElementById('issueQuantity');
-    var info = document.getElementById('stockInfo');
-    var warn = document.getElementById('stockWarning');
-    var submit = document.getElementById('issueSubmit');
-    if (!wh || !mat || !qty || !info) { return; }
-    var available = null;
-
-    function check() {
-        if (available === null) { return; }
-        var n = parseInt(qty.value, 10);
-        if (!isNaN(n) && n > available) {
-            warn.textContent = '库存不足：当前仅 ' + available + '，还差 ' + (n - available);
-            warn.style.display = 'block';
-            if (submit) { submit.disabled = true; }
-        } else {
-            warn.style.display = 'none';
-            if (submit) { submit.disabled = false; }
-        }
-    }
-
-    function loadStock() {
-        available = null;
-        info.innerHTML = '<i class="bi bi-hourglass-split"></i> 正在查询余量…';
-        if (submit) { submit.disabled = false; }
-        warn.style.display = 'none';
-        if (!wh.value || !mat.value) {
-            info.innerHTML = '<i class="bi bi-info-circle"></i> 选择仓库和物料后显示当前可用余量';
-            return;
-        }
-        fetch('{{ url_for("production.api_stock") }}?warehouse_id=' + wh.value + '&material_id=' + mat.value)
-            .then(function (r) { return r.json(); })
-            .then(function (d) {
-                if (d.ok) {
-                    available = d.available;
-                    info.innerHTML = '<i class="bi bi-box-seam"></i> 【' + d.warehouse + ' / ' +
-                        d.material + '】当前可用余量：<strong>' + d.available + '</strong>';
-                    check();
-                } else {
-                    info.innerHTML = '<i class="bi bi-exclamation-triangle"></i> ' + d.message;
-                }
-            })
-            .catch(function () {
-                info.innerHTML = '<i class="bi bi-exclamation-triangle"></i> 余量查询失败，提交时仍会服务端校验';
-            });
-    }
-
-    wh.addEventListener('change', loadStock);
-    mat.addEventListener('change', loadStock);
-    qty.addEventListener('input', check);
-    qty.addEventListener('change', check);
-    loadStock();
-})();
-</script>
 {% endif %}
 {% endblock %}

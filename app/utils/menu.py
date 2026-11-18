@@ -47,7 +47,6 @@ MENU_REGISTRY = [
         'children': [
             {'name': '生产工单', 'endpoint': 'production.order_list', 'permission': 'production.view'},
             {'name': '进度看板', 'endpoint': 'production.board', 'permission': 'production.view'},
-            {'name': '工序档案', 'endpoint': 'production.process_list', 'permission': 'production.view'},
         ],
     },
     {

@@ -38,7 +38,6 @@ PERMISSION_REGISTRY = {
         'production.view': '工单查看',
         'production.manage': '工单管理',
         'production.issue': '工单领料',
-        'production.process.manage': '工序档案维护',
     },
     '物料管理': {
         'material.manage': '物料管理',
