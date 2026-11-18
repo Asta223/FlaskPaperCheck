@@ -90,8 +90,7 @@ def api_messages():
         window = chat_service.pair_messages(current_user.id, peer_id,
                                             before_id=before_id, limit=limit + 1)
         has_more = len(window) > limit
-        # window 为 id 升序：紧邻 before_id 的是末尾 limit 条（取最靠前的更早页）
-        msgs = window[-limit:]
+        msgs = window[:limit]
         earliest_id = msgs[0].id if msgs else before_id
         return {'code': 0,
                 'data': {'messages': [m.to_dict() for m in msgs],

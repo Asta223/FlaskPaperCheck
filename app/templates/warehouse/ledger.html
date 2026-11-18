@@ -45,7 +45,7 @@
                         <td>{{ led.quantity }}</td>
                         <td>{{ led.before_balance }}</td>
                         <td>{{ led.after_balance }}</td>
-                        <td>{% if led.related_order %}<a href="{{ url_for('production.order_detail', order_id=led.related_order_id) }}">{{ led.related_order.order_no }}</a>{% else %}-{% endif %}</td>
+                        <td>{{ led.related_order.order_no if led.related_order else '-' }}</td>
                         <td>{{ led.handler.display_name() if led.handler else '-' }}</td>
                         <td class="text-nowrap">{{ led.created_at | fmt_dt }}</td>
                     </tr>

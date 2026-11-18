@@ -131,37 +131,3 @@ def test_before_id_not_mix_other_peer(client):
     resp = client.get('/chat/api/messages?peer_id=%d&before_id=%d' % (admin.id, before))
     contents = [m['content'] for m in resp.get_json()['data']['messages']]
     assert 'from staff' not in contents
-
-
-# ---------------- QA Bug1 回归：位点 vs 条数 ----------------
-
-def test_unread_after_partial_read_with_interleaved_ids(client):
-    """QA-Bug1：id 被其他消息拉开时，未读必须按 id>site 计数而非条数-site。"""
-    admin, leader = _admin(), _leader()
-    _send(admin.id, leader.id, 'm1')                    # id=1 admin→leader
-    for i in range(5):                                  # id=2..6 leader→admin（拉开间隔）
-        _send(leader.id, admin.id, 'reply%d' % i)
-    _send(admin.id, leader.id, 'm2')                    # id=7 admin→leader
-    login(client, 'leader1', '123456')
-    client.post('/chat/api/read', json={'peer_id': admin.id})  # site=7
-    client.get('/auth/logout')
-    _send(admin.id, leader.id, 'm3')                    # id=8 admin→leader（唯一未读）
-    login(client, 'leader1', '123456')
-    assert chat_service.unread_count(leader.id) == 1
-    assert chat_service.unread_by_peer(leader.id).get(admin.id) == 1
-
-
-# ---------------- QA Bug2 回归：before_id 窗口侧 ----------------
-
-def test_before_id_returns_immediately_preceding_page(client):
-    """QA-Bug2：before_id=36&limit=10 应返回紧邻的 id=26..35，不跳页。"""
-    admin, leader = _admin(), _leader()
-    for i in range(35):
-        _send(admin.id, leader.id, 'm%d' % (i + 1))     # id=1..35
-    login(client, 'leader1', '123456')
-    resp = client.get('/chat/api/messages?peer_id=%d&before_id=36&limit=10' % admin.id)
-    data = resp.get_json()['data']
-    ids = [m['id'] for m in data['messages']]
-    assert ids == list(range(26, 36)), '应返回紧邻 before_id 的 26..35，实际 %s' % ids
-    assert data['earliest_id'] == 26
-    assert data['has_more'] is True

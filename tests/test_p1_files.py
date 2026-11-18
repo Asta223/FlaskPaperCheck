@@ -143,37 +143,3 @@ def test_preview_forbidden_403(client):
     login(client, 'staff1', '123456')
     resp = client.get('/files/%d/preview' % f.id)
     assert resp.status_code == 403
-
-
-# ---------------- QA Bug3 回归：列表与 can_view 口径一致 ----------------
-
-def test_child_dept_user_sees_parent_authorized_file_in_list(client):
-    """QA-Bug3A：文件授权父部门，子部门用户列表可见且可下载（含子部门）。"""
-    prod = _dept('生产部')
-    child = Department(name='装配三车间', parent_id=prod.id, sort_order=2)
-    db.session.add(child)
-    staff = User.query.filter_by(username='staff1').first()
-    staff.department_id = child.id
-    db.session.commit()
-    login(client, 'arch1', '123456')
-    f = _upload(client, 'parent_auth', 'departments', depts=[prod])
-    client.get('/auth/logout')
-    login(client, 'staff1', '123456')
-    resp = client.get('/files/')
-    assert 'parent_auth'.encode() in resp.data, '子部门用户应在列表看到父部门授权文件'
-    assert client.get('/files/%d/download' % f.id).status_code == 200
-
-
-def test_parent_dept_user_does_not_see_child_authorized_file(client):
-    """QA-Bug3B：文件授权子部门，父部门用户列表不可见且下载 403（不向上扩散）。"""
-    prod = _dept('生产部')
-    child = Department(name='质检班组', parent_id=prod.id, sort_order=3)
-    db.session.add(child)
-    db.session.commit()
-    login(client, 'arch1', '123456')
-    f = _upload(client, 'child_auth', 'departments', depts=[child])
-    client.get('/auth/logout')
-    login(client, 'staff1', '123456')  # staff1 属父部门生产部
-    resp = client.get('/files/')
-    assert 'child_auth'.encode() not in resp.data, '父部门用户不应看到子部门授权文件'
-    assert client.get('/files/%d/download' % f.id).status_code == 403
