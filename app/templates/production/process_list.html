@@ -11,19 +11,9 @@
         <div class="card shadow-sm">
             <div class="card-header bg-white">
                 <i class="bi bi-plus-lg"></i> {{ '编辑工序' if process else '新增工序' }}
-                {% if not process and 'production.process.manage' not in current_user|perm_codes %}
-                    <span class="text-muted small">（只读）</span>
-                {% endif %}
             </div>
             <div class="card-body">
-                {% if process and locked.get(process.id) %}
-                    <div class="alert alert-danger small py-2">
-                        <i class="bi bi-lock"></i> 该工序被未完结工单 {{ locked[process.id]|join('、') }} 引用，禁止编辑/停用/删除。
-                    </div>
-                {% endif %}
-                {% if 'production.process.manage' in current_user|perm_codes %}
-                <form method="POST" class="row g-3"
-                      action="{{ url_for('production.process_edit', process_id=process.id) if process else url_for('production.process_new') }}">
+                <form method="POST" class="row g-3">
                     {{ form.hidden_tag() }}
                     <div class="col-12">
                         {{ form.code.label(class="form-label") }}
@@ -55,9 +45,6 @@
                         {% endif %}
                     </div>
                 </form>
-                {% else %}
-                    <p class="text-muted mb-0">你没有工序维护权限，只能查看列表。</p>
-                {% endif %}
             </div>
         </div>
     </div>
@@ -79,23 +66,16 @@
                             <td>
                                 {% if p.is_active %}<span class="badge bg-success">启用</span>
                                 {% else %}<span class="badge bg-secondary">停用</span>{% endif %}
-                                {% if locked.get(p.id) %}
-                                    <span class="badge bg-danger" title="{{ locked[p.id]|join('、') }}">工单占用中</span>
-                                {% endif %}
                             </td>
                             <td>{{ p.remark or '-' }}</td>
                             <td class="text-end">
                                 {% if 'production.process.manage' in current_user|perm_codes %}
-                                    {% set is_locked = locked.get(p.id) %}
-                                    <a class="btn btn-sm btn-outline-primary{% if is_locked %} disabled{% endif %}"
-                                       {% if is_locked %}tabindex="-1" aria-disabled="true"
-                                       title="被未完结工单占用：{{ locked[p.id]|join('、') }}"{% endif %}
+                                    <a class="btn btn-sm btn-outline-primary"
                                        href="{{ url_for('production.process_list', edit_id=p.id) }}">编辑</a>
                                     <form class="d-inline" method="POST"
                                           action="{{ url_for('production.process_toggle', process_id=p.id) }}">
                                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                                        <button class="btn btn-sm btn-outline-warning{% if is_locked and p.is_active %} disabled{% endif %}"
-                                                type="submit" {% if is_locked and p.is_active %}title="被未完结工单占用，禁止停用"{% endif %}>
+                                        <button class="btn btn-sm btn-outline-warning" type="submit">
                                             {{ '启用' if not p.is_active else '停用' }}
                                         </button>
                                     </form>
@@ -103,8 +83,7 @@
                                           action="{{ url_for('production.process_delete', process_id=p.id) }}"
                                           onsubmit="return confirm('删除工序「{{ p.name }}」？可在回收站恢复，且仅当无工单引用时允许。');">
                                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                                        <button class="btn btn-sm btn-outline-danger{% if is_locked %} disabled{% endif %}"
-                                                type="submit" title="删除（可在回收站恢复）">
+                                        <button class="btn btn-sm btn-outline-danger" type="submit" title="删除（可在回收站恢复）">
                                             <i class="bi bi-trash3"></i>
                                         </button>
                                     </form>

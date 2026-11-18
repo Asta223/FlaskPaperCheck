@@ -16,8 +16,7 @@ from app.models.system import OperationLog
 from app.models.user import User
 from app.models.warehouse import StockDocument, Warehouse
 from app.services.inventory_service import InsufficientStockError, restore_stock_document
-from app.services.soft_delete_service import purge_record, restore_record
-from app.utils.delete_guard import USER_PURGE_TABLES, find_references, format_references
+from app.services.soft_delete_service import restore_record
 from app.utils.permissions import permission_required
 from app.utils.time_utils import today
 
@@ -207,41 +206,4 @@ def recycle_restore(type_key, obj_id):
     restore_record(obj, module=module, target_type=target_type,
                    summary='从回收站恢复%s：%s' % (label, desc))
     flash('%s「%s」已恢复' % (label, desc), 'success')
-    return redirect(url_for('system.recycle', type=type_key))
-
-
-@bp.route('/recycle/<type_key>/<int:obj_id>/purge', methods=['POST'])
-@login_required
-@permission_required('system.recycle')
-def recycle_purge(type_key, obj_id):
-    """回收站彻底删除（物理删除，不可恢复）：管理员专用，写 purge 操作日志。
-
-    仅允许删除已软删的记录；仍被未删除业务数据引用时拒绝（附属关联/可空外键
-    由 purge_record 统一清理或置空），防止误删引发外键断链。
-    """
-    cfg = RECYCLE_REGISTRY.get(type_key)
-    if cfg is None:
-        abort(404)
-    model, label, module, target_type, _unique = cfg
-    obj = _include_deleted_get(model, obj_id)
-    if obj is None:
-        abort(404)
-    if not obj.is_deleted:
-        flash('只能彻底删除回收站中已删除的记录', 'warning')
-        return redirect(url_for('system.recycle', type=type_key))
-    if model is User and obj.id == current_user.id:
-        flash('不能彻底删除当前登录账号', 'danger')
-        return redirect(url_for('system.recycle', type=type_key))
-
-    # 活引用一律拒绝（含出入库单据等无 is_deleted 的审计/业务表）
-    refs = find_references(obj, extra_ignore=USER_PURGE_TABLES if model is User else ())
-    if refs:
-        flash('无法彻底删除：%s「%s」仍被 %s 引用，请先处理关联数据' % (
-            label, _describe(obj, type_key), format_references(refs)), 'danger')
-        return redirect(url_for('system.recycle', type=type_key))
-
-    desc = _describe(obj, type_key)
-    purge_record(obj, module=module, target_type=target_type,
-                 summary='管理员从回收站彻底删除%s：%s（不可恢复）' % (label, desc))
-    flash('%s「%s」已彻底删除，无法恢复' % (label, desc), 'warning')
     return redirect(url_for('system.recycle', type=type_key))

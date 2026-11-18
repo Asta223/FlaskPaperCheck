@@ -142,7 +142,6 @@
             <div class="alert alert-light border small py-2 mb-3">
                 <i class="bi bi-lock"></i> 工单当前为「{{ status_labels.get(order.status, order.status) }}」状态，
                 工序流转与工时修正已锁定；待开始是计划态，请先将工单流转至「进行中」。
-                {% if order.status == 'in_progress' %}工单进行中，工序也不允许删除。{% endif %}
             </div>
         {% endif %}
         {% if order.steps %}
@@ -179,15 +178,12 @@
                                             data-bs-toggle="modal" data-bs-target="#laborModal{{ step.id }}"
                                             title="修正实际消耗工时">修工时</button>
                                 {% endif %}
-                                {% if step.status == 'pending' and order.status != 'in_progress' %}
+                                {% if step.status == 'pending' %}
                                     <form class="d-inline" method="POST" action="{{ url_for('production.step_delete', step_id=step.id) }}"
                                           onsubmit="return confirm('删除该工序？可在回收站恢复。');">
                                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                         <button class="btn btn-sm btn-outline-danger" type="submit">删除</button>
                                     </form>
-                                {% elif step.status == 'pending' and order.status == 'in_progress' %}
-                                    <button class="btn btn-sm btn-outline-danger disabled" type="button"
-                                            title="工单进行中，工序不允许删除">删除</button>
                                 {% endif %}
                             </div>
                         {% endif %}

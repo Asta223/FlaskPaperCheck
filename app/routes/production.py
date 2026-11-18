@@ -30,34 +30,6 @@ bp = Blueprint('production', __name__, url_prefix='/production')
 
 # ---------------- 工序档案（P2：主数据统一维护，工单只能引用）----------------
 
-UNFINISHED_ORDER_STATUSES = ('pending', 'in_progress')
-
-
-def unfinished_order_refs(process_id):
-    """引用该工序且所属工单仍未完结（待开始/进行中）的工单展示串列表。
-
-    全局软删过滤自动排除已删除的工单与工序行；已完成/已验收工单属于历史快照，
-    不再锁定工序主数据。
-    """
-    rows = (db.session.query(WorkOrder.order_no, WorkOrder.status)
-            .join(WorkOrderStep, WorkOrderStep.work_order_id == WorkOrder.id)
-            .filter(WorkOrderStep.process_id == process_id,
-                    WorkOrder.status.in_(UNFINISHED_ORDER_STATUSES))
-            .order_by(WorkOrder.id).all())
-    return ['%s（%s）' % (order_no, WorkOrder.STATUS_LABELS.get(status, status))
-            for order_no, status in rows]
-
-
-def _guard_process_locked(process, action):
-    """被未完结工单引用时禁止编辑/停用/删除；返回 True 表示已锁定。"""
-    refs = unfinished_order_refs(process.id)
-    if not refs:
-        return False
-    flash('工序「%s」已被未完结工单 %s 引用，禁止%s；请先将相关工单完结或移除该工序' % (
-        process.name, '、'.join(refs[:5]), action), 'danger')
-    return True
-
-
 @bp.route('/processes')
 @login_required
 @permission_required('production.view')
@@ -67,9 +39,8 @@ def process_list():
     process = db.session.get(Process, edit_id) if edit_id else None
     form = ProcessForm(obj=process) if process else ProcessForm()
     processes = Process.query.order_by(Process.sort_order, Process.id).all()
-    locked = {p.id: unfinished_order_refs(p.id) for p in processes}
     return render_template('production/process_list.html', form=form, process=process,
-                           processes=processes, locked=locked)
+                           processes=processes)
 
 
 @bp.route('/processes/new', methods=['POST'])
@@ -99,10 +70,8 @@ def process_new():
 @login_required
 @permission_required('production.process.manage')
 def process_edit(process_id):
-    """编辑工序档案：被未完结工单引用时禁止；历史步骤快照不回溯。"""
+    """编辑工序档案。已引用工单的步骤 name 快照不回溯，历史留痕不变。"""
     process = db.get_or_404(Process, process_id)
-    if _guard_process_locked(process, '编辑'):
-        return redirect(url_for('production.process_list'))
     form = ProcessForm(obj=process)
     if not form.validate_on_submit():
         flash('工序表单校验失败', 'danger')
@@ -130,10 +99,8 @@ def process_edit(process_id):
 @login_required
 @permission_required('production.process.manage')
 def process_toggle(process_id):
-    """停用/启用工序：被未完结工单引用时禁止停用（启用不受限）。"""
+    """停用/启用工序（软删）：停用后不能再被新工单引用，历史步骤不受影响。"""
     process = db.get_or_404(Process, process_id)
-    if process.is_active and _guard_process_locked(process, '停用'):
-        return redirect(url_for('production.process_list'))
     process.is_active = not process.is_active
     db.session.commit()
     flash('工序「%s」已%s' % (process.name, '启用' if process.is_active else '停用'),
@@ -195,10 +162,8 @@ def _generate_order_no() -> str:
 @login_required
 @permission_required('production.process.manage')
 def process_delete(process_id):
-    """软删除工序档案：被未完结工单引用时禁止；历史工单引用仍按引用守卫拒绝。"""
+    """软删除工序档案：已被未删除的工单步骤引用时拒绝，可从回收站恢复。"""
     process = db.get_or_404(Process, process_id)
-    if _guard_process_locked(process, '删除'):
-        return redirect(url_for('production.process_list'))
     refs = find_references(process)
     if refs:
         flash('工序「%s」仍被 %s 引用，不能删除；可先停用' % (
@@ -587,20 +552,10 @@ def order_quality(order_id):
 @login_required
 @permission_required('production.manage')
 def step_delete(step_id):
-    """软删除工序（回收站可恢复）：仅待开始工单中的待开始工序允许删除。
-
-    进行中工单已进入生产态，其工序（含尚未开始的）一律不允许删除；
-    进行中/已完成的工序本身也不允许删除。
-    """
+    """软删除未开始的工序（回收站可恢复）。"""
     step = db.get_or_404(WorkOrderStep, step_id)
     order_id = step.work_order_id
-    order = db.session.get(WorkOrder, order_id)
-    if order is None:
-        abort(404)
-    if order.status == 'in_progress':
-        flash('工单处于「进行中」状态，工序不允许删除；请先将工单流转至完成或待开始再调整',
-              'danger')
-    elif step.status != 'pending':
+    if step.status != 'pending':
         flash('仅「待开始」工序可删除', 'danger')
     else:
         name = step.name
