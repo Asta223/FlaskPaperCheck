@@ -125,12 +125,12 @@
                 // 恢复上次状态
                 applyState(!!collapsed[groupId]);
 
-                // 点击切换：当前展开则收起，当前收起则展开
+                // 点击切换
                 link.addEventListener('click', function (e) {
                     e.preventDefault();
-                    var shouldCollapse = panel.classList.contains('show');
-                    applyState(shouldCollapse);
-                    collapsed[groupId] = shouldCollapse;
+                    var nowCollapsed = !panel.classList.contains('show');
+                    applyState(nowCollapsed);
+                    collapsed[groupId] = nowCollapsed;
                     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(collapsed)); } catch (err) {}
                 });
             });
