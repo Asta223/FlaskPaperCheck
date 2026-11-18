@@ -12,7 +12,7 @@ from app.models.warehouse import Inventory, StockDocument, Warehouse
 from app.services.inventory_service import InsufficientStockError, InventoryServiceError, \
     apply_stock_document, reverse_stock_document
 from app.services.log_service import log_operation
-from app.utils.delete_guard import find_references, format_references
+from app.services.soft_delete_service import mark_deleted
 from app.utils.permissions import permission_required
 from app.utils.time_utils import today
 
@@ -117,22 +117,22 @@ def warehouse_toggle(warehouse_id):
 @login_required
 @permission_required('warehouse.manage')
 def warehouse_delete(warehouse_id):
-    """彻底删除仓库（物理删）：仅当无任何库存记录且无出入库单据/流水时允许。"""
+    """软删除仓库：有库存/未删除单据/流水时拒绝，可从回收站恢复。"""
     warehouse = db.get_or_404(Warehouse, warehouse_id)
     if warehouse.inventories:
-        flash('该仓库仍存在库存记录，不能彻底删除（可先停用）', 'danger')
+        flash('该仓库仍存在库存记录，不能删除（可先停用）', 'danger')
         return redirect(url_for('warehouse.warehouse_list'))
     if StockDocument.query.filter_by(warehouse_id=warehouse.id).first():
-        flash('该仓库存在出入库单据历史，不能彻底删除（可先停用）', 'danger')
+        flash('该仓库存在出入库单据历史，不能删除（可先停用）', 'danger')
         return redirect(url_for('warehouse.warehouse_list'))
     from app.models.ledger import StockLedger
     if StockLedger.query.filter_by(warehouse_id=warehouse.id).first():
-        flash('该仓库存在库存流水历史，不能彻底删除（可先停用）', 'danger')
+        flash('该仓库存在库存流水历史，不能删除（可先停用）', 'danger')
         return redirect(url_for('warehouse.warehouse_list'))
     name = warehouse.name
-    db.session.delete(warehouse)
-    db.session.commit()
-    flash('仓库「%s」已彻底删除' % name, 'warning')
+    mark_deleted(warehouse, module='warehouse', target_type='warehouse',
+                 summary='删除仓库「%s」，可在回收站恢复' % name)
+    flash('仓库「%s」已删除，可在回收站恢复' % name, 'success')
     return redirect(url_for('warehouse.warehouse_list'))
 
 
@@ -189,23 +189,20 @@ def doc_new():
 @login_required
 @permission_required('warehouse.manage')
 def doc_delete(doc_id):
-    """彻底删除出入库单（物理删）：同事务反向冲销库存并追加冲销流水，保证账实一致。"""
+    """软删除出入库单：同事务反向冲销库存并追加冲销流水；回收站恢复时再重新入账。"""
     doc = db.get_or_404(StockDocument, doc_id)
     doc_no = doc.doc_no
     try:
         reverse_stock_document(doc, current_user.id)
     except InsufficientStockError:
         db.session.rollback()
-        flash('单据 %s 对应库存已被后续出库消耗，无法彻底删除（否则库存会变负）' % doc_no,
+        flash('单据 %s 对应库存已被后续出库消耗，无法删除（否则库存会变负）' % doc_no,
               'danger')
         return redirect(url_for('warehouse.doc_list'))
-    db.session.delete(doc)
-    log_operation(module='warehouse', action='delete', target_type='stock_document',
-                  target_id=doc_id,
-                  summary='彻底删除%s单据 %s ×%s，库存已反向冲销' % (
-                      '入库' if doc.doc_type == 'in' else '出库', doc_no, doc.quantity))
-    db.session.commit()
-    flash('单据 %s 已彻底删除，库存已反向冲销并留痕' % doc_no, 'success')
+    mark_deleted(doc, module='warehouse', target_type='stock_document',
+                 summary='删除%s单据 %s ×%s，库存已反向冲销，可在回收站恢复' % (
+                     '入库' if doc.doc_type == 'in' else '出库', doc_no, doc.quantity))
+    flash('单据 %s 已删除，库存已反向冲销；可在回收站恢复' % doc_no, 'success')
     return redirect(url_for('warehouse.doc_list'))
 
 

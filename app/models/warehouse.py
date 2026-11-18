@@ -1,14 +1,16 @@
 """仓库模型：仓库档案、库存、出入库单据。"""
 from app import db
+from app.models.mixins import SoftDeleteMixin
 from app.utils.time_utils import now
 
 
-class Warehouse(db.Model):
+class Warehouse(SoftDeleteMixin, db.Model):
     """仓库档案。"""
     __tablename__ = 'warehouses'
 
     id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(64), unique=True, nullable=False, comment='仓库名称')
+    # 唯一性只校验未删除记录，软删后允许新建同名仓库
+    name = db.Column(db.String(64), nullable=False, comment='仓库名称')
     location = db.Column(db.String(128), nullable=False, default='', comment='位置')
     is_active = db.Column(db.Boolean, nullable=False, default=True, comment='停用=软删')
 
@@ -43,7 +45,7 @@ class Inventory(db.Model):
         return '<Inventory wh=%s mat=%s qty=%s>' % (self.warehouse_id, self.material_id, self.quantity)
 
 
-class StockDocument(db.Model):
+class StockDocument(SoftDeleteMixin, db.Model):
     """出入库单据（P0：单物料/单）。doc_type ∈ {'in','out'}。"""
     __tablename__ = 'stock_documents'
 

@@ -80,6 +80,7 @@ MENU_REGISTRY = [
         'icon': 'bi-gear',
         'children': [
             {'name': '操作日志', 'endpoint': 'system.operation_logs', 'permission': 'system.log.view'},
+            {'name': '回收站', 'endpoint': 'system.recycle', 'permission': 'system.recycle'},
         ],
     },
 ]

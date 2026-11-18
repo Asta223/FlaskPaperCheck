@@ -5,8 +5,8 @@ from flask_login import login_required
 from app import db
 from app.forms.rbac import RoleForm, fill_role_choices
 from app.models.rbac import Role
-from app.services.log_service import log_operation
-from app.utils.delete_guard import find_references, format_references, purge_associations
+from app.services.soft_delete_service import mark_deleted
+from app.utils.delete_guard import find_references, format_references
 from app.utils.permissions import PERMISSION_REGISTRY, permission_required
 
 bp = Blueprint('rbac', __name__, url_prefix='/rbac')
@@ -80,26 +80,23 @@ def role_edit(role_id):
 @login_required
 @permission_required('rbac.manage')
 def role_delete(role_id):
-    """彻底删除角色（物理删）：内置角色或有用户持有/其他引用时拒绝。"""
+    """软删除角色：内置角色或有用户持有时拒绝，可从回收站恢复。"""
     role = db.get_or_404(Role, role_id)
     if role.is_builtin:
         flash('内置角色不能删除', 'danger')
         return redirect(url_for('rbac.role_list'))
     refs = find_references(role)
-    if role.users:
-        refs['users'] = len(role.users)
+    active_users = [u for u in role.users if not u.is_deleted]
+    if active_users:
+        refs['users'] = len(active_users)
     if refs:
-        flash('角色「%s」仍被 %s 引用，不能彻底删除' % (
+        flash('角色「%s」仍被 %s 引用，不能删除' % (
             role.name, format_references(refs)), 'danger')
         return redirect(url_for('rbac.role_list'))
     name = role.name
-    rid = role.id
-    purge_associations(role)
-    db.session.delete(role)
-    log_operation(module='rbac', action='delete', target_type='role', target_id=rid,
-                  summary='彻底删除角色「%s」' % name)
-    db.session.commit()
-    flash('角色「%s」已彻底删除' % name, 'success')
+    mark_deleted(role, module='rbac', target_type='role',
+                 summary='删除角色「%s」，可在回收站恢复' % name)
+    flash('角色「%s」已删除，可在系统管理→回收站恢复' % name, 'success')
     return redirect(url_for('rbac.role_list'))
 
 

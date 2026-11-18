@@ -121,7 +121,7 @@
                                 {% endif %}
                                 {% if step.status == 'pending' %}
                                     <form class="d-inline" method="POST" action="{{ url_for('production.step_delete', step_id=step.id) }}"
-                                          onsubmit="return confirm('确认删除该工序？');">
+                                          onsubmit="return confirm('删除该工序？可在回收站恢复。');">
                                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                         <button class="btn btn-sm btn-outline-danger" type="submit">删除</button>
                                     </form>

@@ -7,6 +7,7 @@ from app.forms.material import MaterialCategoryForm, MaterialForm, \
     fill_material_category_choices, fill_material_choices
 from app.models.material import Material, MaterialCategory
 from app.services.log_service import log_operation
+from app.services.soft_delete_service import mark_deleted
 from app.utils.delete_guard import find_references, format_references
 from app.utils.permissions import permission_required
 
@@ -67,17 +68,18 @@ def category_edit(cat_id):
 @login_required
 @permission_required('material.manage')
 def category_delete(cat_id):
-    """停用分类（软删）：存在子分类或物料时拒绝。"""
+    """软删除分类：存在未删除子分类或物料时拒绝，可从回收站恢复。"""
     cat = db.get_or_404(MaterialCategory, cat_id)
-    if any(c.is_active for c in cat.children):
-        flash('该分类下存在未停用的子分类，无法停用', 'danger')
+    if any(not c.is_deleted for c in cat.children):
+        flash('该分类下存在子分类，无法删除', 'danger')
         return redirect(url_for('material.category_list'))
-    if any(m.is_active for m in cat.materials):
-        flash('该分类下存在未停用的物料，无法停用', 'danger')
+    if any(not m.is_deleted for m in cat.materials):
+        flash('该分类下存在物料，无法删除', 'danger')
         return redirect(url_for('material.category_list'))
-    cat.is_active = False
-    db.session.commit()
-    flash('分类已停用', 'warning')
+    name = cat.name
+    mark_deleted(cat, module='material', target_type='material_category',
+                 summary='删除物料分类「%s」，可在回收站恢复' % name)
+    flash('分类「%s」已删除，可在回收站恢复' % name, 'success')
     return redirect(url_for('material.category_list'))
 
 
@@ -85,21 +87,8 @@ def category_delete(cat_id):
 @login_required
 @permission_required('material.manage')
 def category_purge(cat_id):
-    """彻底删除物料分类（物理删）：有子分类或物料引用时拒绝。"""
-    cat = db.get_or_404(MaterialCategory, cat_id)
-    refs = find_references(cat)
-    if refs:
-        flash('分类「%s」仍被 %s 引用，不能彻底删除；可先停用' % (
-            cat.name, format_references(refs)), 'danger')
-        return redirect(url_for('material.category_list'))
-    name = cat.name
-    cid = cat.id
-    db.session.delete(cat)
-    log_operation(module='material', action='delete', target_type='material_category',
-                  target_id=cid, summary='彻底删除物料分类「%s」' % name)
-    db.session.commit()
-    flash('分类「%s」已彻底删除' % name, 'success')
-    return redirect(url_for('material.category_list'))
+    """兼容旧入口：与 /delete 同为软删除。"""
+    return category_delete(cat_id)
 
 
 # ---------------- 物料档案 ----------------
@@ -195,18 +184,15 @@ def material_toggle(material_id):
 @login_required
 @permission_required('material.manage')
 def material_delete(material_id):
-    """彻底删除物料（物理删）：有库存/单据/流水/预警引用时拒绝，避免账实断链。"""
+    """软删除物料：有库存/单据/流水/预警等有效引用时拒绝，可从回收站恢复。"""
     material = db.get_or_404(Material, material_id)
     refs = find_references(material)
     if refs:
-        flash('物料「%s」仍被 %s 引用，不能彻底删除；可先停用' % (
+        flash('物料「%s」仍被 %s 引用，不能删除' % (
             material.name, format_references(refs)), 'danger')
         return redirect(url_for('material.material_list'))
     name = material.name
-    mid = material.id
-    db.session.delete(material)
-    log_operation(module='material', action='delete', target_type='material', target_id=mid,
-                  summary='彻底删除物料「%s」' % name)
-    db.session.commit()
-    flash('物料「%s」已彻底删除' % name, 'success')
+    mark_deleted(material, module='material', target_type='material',
+                 summary='删除物料「%s」，可在回收站恢复' % name)
+    flash('物料「%s」已删除，可在回收站恢复' % name, 'success')
     return redirect(url_for('material.material_list'))

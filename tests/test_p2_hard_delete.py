@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
-"""P2-3 硬删除测试：所有用户可新增数据支持物理删除。
+"""P2-3 删除测试（已改为软删除）：所有用户可新增数据支持删除并在回收站恢复。
 
 覆盖设计约束：
-- 无引用的错误数据可彻底删除（员工/部门/角色/工序/工单/物料/分类/文件/请假/考勤/消息）；
+- 无引用的错误数据可删除（页面隐藏、数据库保留），回收站可恢复；
 - 仍被业务数据引用时拒绝删除，不产生悬挂数据；
 - 内置角色、当前登录账号、他人消息/记录受保护；
 - 出入库单删除时反向冲销库存并追加冲销流水（账实一致 + 审计完整）；
@@ -59,7 +59,7 @@ def test_employee_hard_delete_without_refs(client):
     token = get_csrf(client, '/hr/employees')
     resp = client.post('/hr/employees/%d/delete' % target.id, data={'csrf_token': token})
     assert resp.status_code == 302
-    assert db.session.get(User, target.id) is None
+    assert db.session.get(User, target.id).is_deleted is True
 
 
 def test_employee_hard_delete_rejected_when_referenced(client):
@@ -99,7 +99,7 @@ def test_department_hard_delete(client):
     token = get_csrf(client, '/hr/departments')
     r1 = client.post('/hr/departments/%d/purge' % empty.id, data={'csrf_token': token})
     assert r1.status_code == 302
-    assert db.session.get(Department, empty.id) is None
+    assert db.session.get(Department, empty.id).is_deleted is True
     r2 = client.post('/hr/departments/%d/purge' % used.id, data={'csrf_token': token},
                      follow_redirects=True)
     assert r2.status_code == 200
@@ -119,7 +119,7 @@ def test_role_hard_delete_builtin_and_custom(client):
     assert '内置角色不能删除'.encode() in r1.data
     r2 = client.post('/rbac/roles/%d/delete' % custom.id, data={'csrf_token': token})
     assert r2.status_code == 302
-    assert db.session.get(Role, custom.id) is None
+    assert db.session.get(Role, custom.id).is_deleted is True
 
 
 # ---------------- 生产 ----------------
@@ -146,7 +146,7 @@ def test_process_hard_delete_referenced_rejected(client):
     r2 = client.post('/production/processes/%d/delete' % free.id,
                      data={'csrf_token': token})
     assert r2.status_code == 302
-    assert db.session.get(Process, free.id) is None
+    assert db.session.get(Process, free.id).is_deleted is True
 
 
 def test_order_hard_delete_with_step_rejected(client):
@@ -166,7 +166,7 @@ def test_order_hard_delete_with_step_rejected(client):
     r2 = client.post('/production/orders/%d/delete' % empty.id,
                      data={'csrf_token': token})
     assert r2.status_code == 302
-    assert db.session.get(WorkOrder, empty.id) is None
+    assert db.session.get(WorkOrder, empty.id).is_deleted is True
 
 
 # ---------------- 物料 / 仓库 ----------------
@@ -189,11 +189,11 @@ def test_material_and_category_hard_delete(client):
     assert db.session.get(Material, used.id) is not None
     r2 = client.post('/material/%d/delete' % free.id, data={'csrf_token': token})
     assert r2.status_code == 302
-    assert db.session.get(Material, free.id) is None
+    assert db.session.get(Material, free.id).is_deleted is True
     token2 = get_csrf(client, '/material/categories')
     r3 = client.post('/material/categories/%d/purge' % cat.id, data={'csrf_token': token2})
     assert r3.status_code == 302
-    assert db.session.get(MaterialCategory, cat.id) is None
+    assert db.session.get(MaterialCategory, cat.id).is_deleted is True
 
 
 def test_document_hard_delete_reverses_inventory(client):
@@ -209,7 +209,7 @@ def test_document_hard_delete_reverses_inventory(client):
     token = get_csrf(client, '/warehouse/docs')
     resp = client.post('/warehouse/docs/%d/delete' % doc.id, data={'csrf_token': token})
     assert resp.status_code == 302
-    assert db.session.get(StockDocument, doc.id) is None
+    assert db.session.get(StockDocument, doc.id).is_deleted is True
     db.session.refresh(inv)
     assert inv.quantity == 10
     reversals = StockLedger.query.filter_by(doc_no=doc.doc_no + '-R', doc_type='out').all()
@@ -230,7 +230,7 @@ def test_document_delete_rejected_when_stock_consumed(client):
     token = get_csrf(client, '/warehouse/docs')
     resp = client.post('/warehouse/docs/%d/delete' % doc_in.id,
                        data={'csrf_token': token}, follow_redirects=True)
-    assert '无法彻底删除'.encode() in resp.data
+    assert '无法删除'.encode() in resp.data
     assert db.session.get(StockDocument, doc_in.id) is not None
     inv = Inventory.query.filter_by(warehouse_id=w.id, material_id=m.id).first()
     assert inv.quantity == 0
@@ -239,7 +239,7 @@ def test_document_delete_rejected_when_stock_consumed(client):
 # ---------------- 文件 / 考勤 / 请假 / 聊天 ----------------
 
 def test_file_and_category_hard_delete(client):
-    """文件记录可硬删（含磁盘文件）；有文件引用的分类拒绝硬删。"""
+    """文件记录可软删（磁盘文件保留）；有文件引用的分类拒绝删除。"""
     login(client, 'admin', 'admin123')
     cat = FileCategory(name='误建文件分类')
     db.session.add(cat)
@@ -259,9 +259,11 @@ def test_file_and_category_hard_delete(client):
     assert db.session.get(FileCategory, cat.id) is not None
     r2 = client.post('/files/%d/purge' % f.id, data={'csrf_token': token})
     assert r2.status_code == 302
-    assert db.session.get(FactoryFile, f.id) is None
+    assert db.session.get(FactoryFile, f.id).is_deleted is True
     import os
-    assert not os.path.exists(disk)
+    # 软删除只隐藏记录，磁盘文件保留，便于回收站恢复
+    assert os.path.exists(disk)
+    os.remove(disk)
 
 
 def test_leave_delete_owner_and_forbidden(client):
@@ -284,7 +286,7 @@ def test_leave_delete_owner_and_forbidden(client):
     token2 = get_csrf(client, '/attendance/leave/list')
     r2 = client.post('/attendance/leave/%d/delete' % lv.id, data={'csrf_token': token2})
     assert r2.status_code == 302
-    assert db.session.get(LeaveRequest, lv.id) is None
+    assert db.session.get(LeaveRequest, lv.id).is_deleted is True
 
 
 def test_attendance_record_delete_by_owner(client):
@@ -298,7 +300,7 @@ def test_attendance_record_delete_by_owner(client):
     token = get_csrf(client, '/attendance/records')
     resp = client.post('/attendance/records/%d/delete' % rec.id, data={'csrf_token': token})
     assert resp.status_code == 302
-    assert db.session.get(AttendanceRecord, rec.id) is None
+    assert db.session.get(AttendanceRecord, rec.id).is_deleted is True
 
 
 def test_chat_message_delete_only_sender(client):
@@ -318,7 +320,7 @@ def test_chat_message_delete_only_sender(client):
     r2 = client.post('/chat/messages/%d/delete' % msg.id, data={'csrf_token': token})
     assert r2.status_code == 200
     assert r2.get_json()['code'] == 0
-    assert db.session.get(ChatMessage, msg.id) is None
+    assert db.session.get(ChatMessage, msg.id).is_deleted is True
 
 
 def test_audit_tables_have_no_delete_route(app):

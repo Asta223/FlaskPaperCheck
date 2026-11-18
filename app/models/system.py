@@ -19,7 +19,7 @@ class OperationLog(db.Model):
     ACTION_LABELS = {
         'login': '登录', 'create': '创建', 'update': '更新',
         'transition': '状态流转', 'approve': '审批', 'issue': '领料',
-        'export': '导出', 'import': '导入',
+        'export': '导出', 'import': '导入', 'delete': '删除', 'restore': '恢复',
     }
 
     id = db.Column(db.Integer, primary_key=True)

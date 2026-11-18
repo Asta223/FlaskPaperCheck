@@ -18,6 +18,7 @@ from app.models.warehouse import Inventory, StockDocument
 from app.services.inventory_service import InsufficientStockError, InventoryServiceError, \
     apply_stock_document
 from app.services.log_service import log_operation
+from app.services.soft_delete_service import mark_deleted
 from app.utils.data_scope import visible_department_ids
 from app.utils.delete_guard import find_references, format_references
 from app.utils.permissions import permission_required
@@ -149,7 +150,9 @@ def _generate_order_no() -> str:
     seq = 1
     while True:
         order_no = 'WO%s%03d' % (date_str, seq)
-        if not WorkOrder.query.filter_by(order_no=order_no).first():
+        exists = (WorkOrder.query.execution_options(include_deleted=True)
+                  .filter_by(order_no=order_no).first())
+        if not exists:
             return order_no
         seq += 1
 
@@ -158,20 +161,17 @@ def _generate_order_no() -> str:
 @login_required
 @permission_required('production.process.manage')
 def process_delete(process_id):
-    """彻底删除工序档案（物理删）：已被工单步骤引用时拒绝，避免历史留痕断链。"""
+    """软删除工序档案：已被未删除的工单步骤引用时拒绝，可从回收站恢复。"""
     process = db.get_or_404(Process, process_id)
     refs = find_references(process)
     if refs:
-        flash('工序「%s」仍被 %s 引用，不能彻底删除；可先停用' % (
+        flash('工序「%s」仍被 %s 引用，不能删除；可先停用' % (
             process.name, format_references(refs)), 'danger')
         return redirect(url_for('production.process_list'))
     name = process.name
-    pid = process.id
-    db.session.delete(process)
-    log_operation(module='production', action='delete', target_type='process', target_id=pid,
-                  summary='彻底删除工序「%s」' % name)
-    db.session.commit()
-    flash('工序「%s」已彻底删除' % name, 'success')
+    mark_deleted(process, module='production', target_type='process',
+                 summary='删除工序「%s」，可在回收站恢复' % name)
+    flash('工序「%s」已删除，可在系统管理→回收站恢复' % name, 'success')
     return redirect(url_for('production.process_list'))
 
 
@@ -233,20 +233,17 @@ def order_edit(order_id):
 @login_required
 @permission_required('production.manage')
 def order_delete(order_id):
-    """彻底删除工单（物理删）：误建工单纠错用，已有工序/领料记录时拒绝。"""
+    """软删除工单：已有未删除的工序/领料记录时拒绝，可从回收站恢复。"""
     order = db.get_or_404(WorkOrder, order_id)
     refs = find_references(order)
     if refs:
-        flash('工单 %s 仍被 %s 引用，不能彻底删除' % (
+        flash('工单 %s 仍被 %s 引用，不能删除' % (
             order.order_no, format_references(refs)), 'danger')
         return redirect(url_for('production.order_list'))
     order_no = order.order_no
-    oid = order.id
-    db.session.delete(order)
-    log_operation(module='production', action='delete', target_type='work_order',
-                  target_id=oid, summary='彻底删除工单 %s' % order_no)
-    db.session.commit()
-    flash('工单 %s 已彻底删除' % order_no, 'success')
+    mark_deleted(order, module='production', target_type='work_order',
+                 summary='删除工单 %s，可在回收站恢复' % order_no)
+    flash('工单 %s 已删除，可在系统管理→回收站恢复' % order_no, 'success')
     return redirect(url_for('production.order_list'))
 
 
@@ -394,15 +391,16 @@ def step_labor(step_id):
 @login_required
 @permission_required('production.manage')
 def step_delete(step_id):
-    """删除未开始的工序。"""
+    """软删除未开始的工序（回收站可恢复）。"""
     step = db.get_or_404(WorkOrderStep, step_id)
     order_id = step.work_order_id
     if step.status != 'pending':
         flash('仅「待开始」工序可删除', 'danger')
     else:
-        db.session.delete(step)
-        db.session.commit()
-        flash('工序「%s」已删除' % step.name, 'warning')
+        name = step.name
+        mark_deleted(step, module='production', target_type='work_order_step',
+                     summary='删除工单工序「%s」，可在回收站恢复' % name)
+        flash('工序「%s」已删除，可在回收站恢复' % name, 'warning')
     return redirect(url_for('production.order_detail', order_id=order_id))
 
 

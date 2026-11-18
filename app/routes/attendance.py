@@ -18,6 +18,7 @@ from app.models.org import Department
 from app.models.user import User
 from app.services import attendance_service
 from app.services.log_service import log_operation
+from app.services.soft_delete_service import mark_deleted
 from app.utils.data_scope import apply_dept_scope, visible_department_ids
 from app.utils.permissions import has_permission, permission_required
 from app.utils.time_utils import now, today
@@ -118,21 +119,18 @@ def records():
 @login_required
 @permission_required('attendance.view')
 def record_delete(record_id):
-    """彻底删除打卡记录（物理删）：本人可删，主管可删管辖范围内员工的记录。"""
+    """软删除打卡记录：本人可删，主管可删管辖范围内员工的记录，回收站可恢复。"""
     rec = db.get_or_404(AttendanceRecord, record_id)
     if rec.user_id != current_user.id:
         owner = db.session.get(User, rec.user_id)
         if not has_permission(current_user, 'attendance.view_all') or not _user_in_scope(owner):
             abort(403)
     date_str = rec.work_date.isoformat()
-    rid = rec.id
     owner_name = db.session.get(User, rec.user_id).display_name()
     owner_id = rec.user_id
-    db.session.delete(rec)
-    log_operation(module='attendance', action='delete', target_type='attendance_record',
-                  target_id=rid, summary='彻底删除 %s 的 %s 打卡记录' % (owner_name, date_str))
-    db.session.commit()
-    flash('%s 的打卡记录已彻底删除' % date_str, 'success')
+    mark_deleted(rec, module='attendance', target_type='attendance_record',
+                 summary='删除 %s 的 %s 打卡记录，可在回收站恢复' % (owner_name, date_str))
+    flash('%s 的打卡记录已删除，可在回收站恢复' % date_str, 'success')
     return redirect(url_for('attendance.records', user_id=owner_id))
 
 
@@ -343,7 +341,7 @@ def leave_approve(leave_id):
 @login_required
 @permission_required('attendance.leave.apply')
 def leave_delete(leave_id):
-    """彻底删除请假申请（物理删）：申请人本人可删；审批人可删管辖范围内的申请。"""
+    """软删除请假申请：申请人本人可删；审批人可删管辖范围内的申请，回收站可恢复。"""
     leave_rec = db.get_or_404(LeaveRequest, leave_id)
     applicant = db.session.get(User, leave_rec.applicant_id)
     allowed = leave_rec.applicant_id == current_user.id or (
@@ -354,11 +352,9 @@ def leave_delete(leave_id):
         abort(403)
     lid = leave_rec.id
     applicant_name = applicant.display_name() if applicant else '未知员工'
-    db.session.delete(leave_rec)
-    log_operation(module='attendance', action='delete', target_type='leave_request',
-                  target_id=lid, summary='彻底删除 %s 的请假申请#%s' % (applicant_name, lid))
-    db.session.commit()
-    flash('请假申请 #%s 已彻底删除' % lid, 'success')
+    mark_deleted(leave_rec, module='attendance', target_type='leave_request',
+                 summary='删除 %s 的请假申请#%s，可在回收站恢复' % (applicant_name, lid))
+    flash('请假申请 #%s 已删除，可在回收站恢复' % lid, 'success')
     # 审批人从待办页删除则回待办页；本人删除则回我的请假
     from_approvals = request.referrer and '/leave/approvals' in request.referrer
     return redirect(url_for('attendance.leave_approvals' if from_approvals

@@ -52,7 +52,7 @@
 
 | 编号 | 需求 | 实现 |
 |---|---|---|
-| P2-05 | 仓库档案允许增删查改（不同厂区仓库不同，用户自定义） | 仓库档案补**可逆停用/启用**（`warehouse_toggle`，有库存>0 禁止停用）、**严格条件下彻底删除**（无库存记录、无出入库单据、无流水才允许物理删）、**按名称/位置搜索**；新建/编辑/停用/删除全部记操作日志 |
+| P2-05 | 仓库档案允许增删查改（不同厂区仓库不同，用户自定义） | 仓库档案补**可逆停用/启用**（`warehouse_toggle`，有库存>0 禁止停用）、**软删除**（无库存/单据/流水引用时可从页面隐藏，回收站可恢复）、**按名称/位置搜索**；新建/编辑/停用/删除全部记操作日志 |
 | P2-06 | 物料档案记录存放仓位/货位，便于出入库 | `Material.storage_location`（String128）单字段记录「什么仓库的什么货位」；物料新建/编辑可录入，列表/筛选可见；**出入库单据与工单领料的物料下拉直接带出【库位：…】提示**；库存查询页与库存 CSV 导出增加库位列 |
 
 设计取舍：库位采用物料档案上的单一文本字段（如「原材料仓 A区-03排-2层」），不建独立库位表、不做仓库×物料多维关联——符合小型工厂"线上留痕、不搞复杂"定位，避免与库存维度冗余。
@@ -61,37 +61,44 @@
 
 ---
 
-## P2-3 追加需求（全量硬删除）
+## P2-3 / P2-4 追加需求（全量软删除 + 管理员回收站）
 
-用户诉求：**所有可新增的数据都应支持硬删除**——误操作建立的错误数据不存在"停用/复用"的价值，必须能彻底删掉。
+用户最终口径修正：**删除不是物理删除，而是软删除**——页面/下拉不再显示即可，数据库记录保留；误删由管理员在回收站恢复。
 
-| 范围 | 新增硬删除入口 | 拒绝条件（保护历史完整性） |
+| 范围 | 删除入口 | 拒绝条件（保护历史完整性） |
 |---|---|---|
-| 员工 | `hr.employee_delete` | 当前登录账号；仍被考勤/请假/工单/文件等引用 |
-| 部门 | `hr.department_purge` | 仍有子部门、员工、请假、工单引用 |
+| 员工 | `hr.employee_delete` | 当前登录账号；仍被考勤/请假/工单/文件等有效引用 |
+| 部门 | `hr.department_delete` | 仍有子部门或在职员工 |
 | 角色 | `rbac.role_delete` | 内置角色；仍有用户持有 |
-| 工序档案 | `production.process_delete` | 已被工单步骤引用 |
-| 工单 | `production.order_delete` | 已有工序步骤或领料单据 |
+| 工序档案 | `production.process_delete` | 已被未删除的工单步骤引用 |
+| 工单 | `production.order_delete` | 已有未删除的工序步骤或领料单据 |
 | 物料 | `material.material_delete` | 有库存/单据/流水/预警引用 |
-| 物料分类 | `material.category_purge` | 有子分类或物料引用 |
+| 物料分类 | `material.category_delete` | 有子分类或物料引用 |
 | 出入库单 | `warehouse.doc_delete` | 原入库货已被后续出库消耗（扣回会使库存为负） |
-| 文件 | `files.file_purge` | 无（同时删除磁盘文件与可见范围关联） |
-| 文件分类 | `files.category_purge` | 有子分类或文件引用 |
+| 文件 | `files.file_delete` | 无（磁盘文件保留，便于恢复） |
+| 文件分类 | `files.category_delete` | 有子分类或文件引用 |
 | 请假申请 | `attendance.leave_delete` | 非本人且非管辖范围审批人（403） |
 | 打卡记录 | `attendance.record_delete` | 非本人且非管辖范围主管（403） |
 | 聊天消息 | `chat.message_delete` | 非发送人（403） |
+| 工单工序 | `production.step_delete` | 仅「待开始」可删 |
 
-**实现机制**：新增 `app/utils/delete_guard.py` 统一守卫——物理删除前扫描全库外键，有引用则拒绝并列出具体来源（如"库存记录 3 条、出入库单据 6 条"）；多对多关联表（user_roles / role_permissions / file_*_visibility）作为附属关系自动清理，不算引用；操作日志作为审计留痕永不删除，删除员工时仅将 `operator_id` 置空（摘要仍含姓名）。
+**实现机制**：
+- `SoftDeleteMixin` 给 15 张用户可新增表加 `is_deleted`；通过 SQLAlchemy 2.0 `with_loader_criteria` 在 Session 级统一过滤，列表/详情/下拉/关联懒加载/`Session.get` 全部自动排除已删除行。
+- 回收站等需要看到已删除数据的查询显式加 `.execution_options(include_deleted=True)` 绕过。
+- 删除/恢复均通过 `soft_delete_service` 写 `OperationLog`（action=`delete`/`restore`），同事务提交。
+- `app/utils/delete_guard.py` 保留引用守卫：只统计未删除的引用行；已软删的子记录不再阻塞主记录删除。
+- 业务唯一性改由应用层只校验未删除记录（迁移中删除了 7 个唯一索引 + 打卡日唯一约束），因此软删后可用同编码/名称重建；回收站恢复时若冲突则拒绝。
+- 出入库单仍由 `reverse_stock_document()` 同事务反向冲销并追加 `-R` 流水；恢复时 `restore_stock_document()` 重新入账并追加 `-RS` 流水，保证账实一致与审计不断链。
 
-**单据删除的账实一致性**：`reverse_stock_document()` 在同一事务内反向冲销库存（原入库→扣回、原出库→加回），保留原流水并追加一条方向相反、单号带 `-R` 后缀的冲销流水，保证"账实一致 + 审计不断链"。
+**回收站**：`system.recycle` 权限点（仅 superadmin 持有）→「系统管理 → 回收站」，按类型列出已删除记录，支持恢复；恢复前校验唯一性、引用状态与库存余量。原 `*_purge` 路由保留为软删除兼容入口，不再物理删除任何数据。
 
-**明确不提供删除的数据**：操作日志、库存流水、通知、库存预警状态、权限点——这些是系统自动产生的审计/状态数据，不属于"用户可新增"，删除会破坏留痕定位。
+**明确不提供删除的数据**：操作日志、库存流水、通知、库存预警状态、权限点——系统自动产生的审计/状态数据，删除会破坏留痕定位。
 
-相关文件：`app/utils/delete_guard.py`、`app/services/inventory_service.py`、各业务蓝图与列表模板、`tests/test_p2_hard_delete.py`（15 项）。
+相关文件：`app/models/mixins.py`、`app/services/soft_delete_service.py`、`app/utils/delete_guard.py`、`app/services/inventory_service.py`、`app/routes/system.py`、`app/templates/system/recycle.html`、`migrations/versions/d4e5f6a7b8c9_soft_delete.py`、`tests/test_p2_hard_delete.py`、`tests/test_p2_soft_delete_recycle.py`。
 
 ---
 
 ## 验证
 
-- 自动化测试：P2-1 `tests/test_p2_production.py`（15 项）、P2-2 `tests/test_p2_warehouse_material.py`（10 项）、P2-3 `tests/test_p2_hard_delete.py`（15 项），全量 **253 passed**（P0/P1/QA/P2）。
-- 端到端实测（MySQL `FactoryManagementSystem` 库）：所有列表页删除按钮渲染正常；守卫正确检出物料的库存/单据/流水引用；临时工序与临时角色创建后硬删成功；有数据的员工账号打卡/请假删除按钮正常渲染。
+- 自动化测试：P2-1 `tests/test_p2_production.py`（15 项）、P2-2 `tests/test_p2_warehouse_material.py`（10 项）、P2-3 `tests/test_p2_hard_delete.py`（15 项）、P2-4 `tests/test_p2_soft_delete_recycle.py`（5 项），全量 **258 passed**（P0/P1/QA/P2）。
+- 端到端实测（MySQL `FactoryManagementSystem` 库）：迁移后 15 张表新增 `is_deleted`；回收站菜单/页面可访问；删除后列表隐藏、回收站可见；恢复与库存重新入账可在操作日志追溯。

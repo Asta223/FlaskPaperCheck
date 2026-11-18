@@ -1,13 +1,12 @@
-"""硬删除守卫：物理删除前统一检测引用，避免留下悬挂数据。
+"""删除守卫：检测仍在使用中的引用，避免隐藏主数据后历史页面断链。
 
-设计原则（小型工厂"线上留痕"定位）：
-- 凡用户可新增的数据，都提供"彻底删除"入口——误建的错误数据不需要停用/复用。
-- 但硬删除不能抹掉业务历史：仍有其他业务记录引用时拒绝删除，并明确列出引用来源。
-- 多对多关联表属于主记录的附属关系，删除主记录时自动清理，不算"引用"。
-- 操作日志是审计留痕，永不删除；删除员工账号时只把 operator_id 置空（摘要仍含姓名）。
-- 库存流水等不可变审计数据不在任何删除范围内。
+软删除改造后（2026-11-18）：
+- 删除=置 is_deleted=True，记录保留在库中，页面/下拉默认不显示，回收站可恢复；
+- 已软删的子记录不再算作有效引用（它们本身也不可见）；
+- 多对多关联表与主记录同生命周期，不算引用；
+- 操作日志、库存流水等审计数据永不删除。
 """
-from sqlalchemy import func, inspect, select, text
+from sqlalchemy import func, inspect, select
 
 from app import db
 
@@ -50,14 +49,18 @@ def find_references(obj, *, extra_ignore=()):
         table = mapper.local_table
         if table.name in ignore or table.name == target_table:
             continue
+        soft_col = table.columns.get('is_deleted')
         for column in table.columns:
             if not column.foreign_keys:
                 continue
             if not any(fk.target_fullname.split('.')[0] == target_table
                        for fk in column.foreign_keys):
                 continue
+            where = column == pk_value
+            if soft_col is not None:
+                where = db.and_(where, soft_col.is_(False))
             count = db.session.execute(
-                select(func.count()).select_from(table).where(column == pk_value)
+                select(func.count()).select_from(table).where(where)
             ).scalar() or 0
             if count:
                 refs[table.name] = refs.get(table.name, 0) + count
@@ -68,31 +71,3 @@ def format_references(refs):
     """把引用字典转成中文提示。"""
     return '、'.join('%s %d 条' % (TABLE_LABELS.get(name, name), count)
                     for name, count in sorted(refs.items()))
-
-
-def purge_associations(obj):
-    """清理该对象的全部多对多关联行（SQLAlchemy secondary）。"""
-    primary_key = inspect(obj).mapper.primary_key[0]
-    pk_value = getattr(obj, primary_key.name)
-    for relationship in inspect(obj).mapper.relationships:
-        if relationship.secondary is None:
-            continue
-        for column in relationship.secondary.columns:
-            if any(fk.target_fullname.split('.')[0] == obj.__tablename__
-                   for fk in column.foreign_keys):
-                db.session.execute(relationship.secondary.delete().where(column == pk_value))
-
-
-def purge_user_auxiliary(user_id):
-    """删除员工账号时清理个人辅助数据，并把操作日志的操作人置空。
-
-    聊天/通知/已读位点随账号删除；操作日志保留，仅置空 operator_id。
-    """
-    db.session.execute(text('DELETE FROM notifications WHERE receiver_id = :uid'),
-                       {'uid': user_id})
-    db.session.execute(text('DELETE FROM chat_messages WHERE sender_id = :uid '
-                            'OR receiver_id = :uid'), {'uid': user_id})
-    db.session.execute(text('DELETE FROM conversation_reads WHERE user_id = :uid '
-                            'OR peer_id = :uid'), {'uid': user_id})
-    db.session.execute(text('UPDATE operation_logs SET operator_id = NULL '
-                            'WHERE operator_id = :uid'), {'uid': user_id})
