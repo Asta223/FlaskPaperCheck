@@ -147,17 +147,8 @@ class Config:
     EARLY_GRACE_MIN = 15
     WORKDAYS = (0, 1, 2, 3, 4)  # Monday=0
 
-    # 文件在线预览：内联二进制（浏览器原生渲染）与结构化解析扩展名
-    PREVIEW_INLINE_EXTENSIONS = {'.pdf', '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp'}
-    PREVIEW_EXTENSIONS = PREVIEW_INLINE_EXTENSIONS | {
-        '.txt', '.md', '.csv', '.docx', '.xlsx', '.xls',
-    }
-    # 结构化预览上限：防止超大文档拖垮页面（原文件下载不受影响）
-    PREVIEW_TEXT_MAX_BYTES = 2 * 1024 * 1024
-    PREVIEW_MAX_ROWS = 200
-    PREVIEW_MAX_COLS = 30
-    PREVIEW_MAX_SHEETS = 20
-    PREVIEW_DOCX_MAX_BLOCKS = 300
+    # P1-12 图片/PDF 内联预览扩展名
+    PREVIEW_EXTENSIONS = {'.pdf', '.png', '.jpg', '.jpeg', '.gif', '.webp'}
 
     # P1-16 CSV 单次导出行数上限（默认假设 A1）
     MAX_EXPORT_ROWS = 10000

@@ -98,31 +98,7 @@
 
 ---
 
-## P2-5 追加需求：多格式在线预览
-
-用户诉求：文件管理除图片/PDF 外，还要能在线查看 Word、Excel、TXT、CSV、PDF 等常见格式，无需每次下载。
-
-| 格式 | 预览方式 | 说明 |
-|---|---|---|
-| png/jpg/jpeg/gif/bmp/webp、pdf | 内联原始字节 | 浏览器原生渲染，保真度最高 |
-| txt/md | 文本解析 | 自动识别 UTF-8 BOM/UTF-8/GB18030（兼容 GBK），按原文换行显示 |
-| csv | 表格解析 | 自动识别 `, ; tab |` 分隔符，首行作表头 |
-| docx | 内容级解析 | 保留标题层级、显式加粗/斜体、段落与表格；复杂版式/图片/批注不在预览范围 |
-| xlsx/xls | 内容级解析 | 多工作表、首行表头，公式取缓存计算值；样式/宏不在预览范围（.xls 用 xlrd） |
-| doc/ppt | 提示页 | 旧版二进制格式无可靠纯 Python 解析器，给出“另存为新版格式或下载查看”提示 |
-| 其他（zip/rar/dwg 等） | 跳转下载 | 维持原有行为 |
-
-**实现要点**：
-- 新增 `app/services/file_preview_service.py`，按扩展名分派；所有文档内容以结构化字典交给 Jinja2 模板渲染并自动转义，杜绝文档内容注入。
-- 上限保护：文本 2 MB、表格 200 行 × 30 列、Excel 20 个工作表、Word 300 个段落/表格；超限截断并提示下载原文件。解析异常（损坏/加密）只返回友好提示，不影响下载。
-- 权限不放松：预览页与内联字节流均复用 `FactoryFile.can_view()`；`preview_file` 仅服务图片/PDF，文本/文档不暴露原始字节流。
-- 依赖新增 `python-docx`、`openpyxl`、`xlrd`（另 `xlwt` 仅用于测试生成 .xls 样本，均为纯 Python/轻量依赖，内网可离线安装）。
-
-相关文件：`config.py`、`app/routes/files.py`、`app/services/file_preview_service.py`、`app/templates/files/preview.html`、`app/templates/files/index.html`、`requirements.txt`、`tests/test_p3_file_preview.py`。
-
----
-
 ## 验证
 
-- 自动化测试：P2-1 `tests/test_p2_production.py`（15 项）、P2-2 `tests/test_p2_warehouse_material.py`（10 项）、P2-3 `tests/test_p2_hard_delete.py`（15 项）、P2-4 `tests/test_p2_soft_delete_recycle.py`（5 项）、P2-5 `tests/test_p3_file_preview.py`（9 项），全量 **267 passed**（P0/P1/QA/P2）。
-- 端到端实测（MySQL `FactoryManagementSystem` 库）：迁移后 15 张表新增 `is_deleted`；回收站菜单/页面可访问；删除后列表隐藏、回收站可见；恢复与库存重新入账可在操作日志追溯；txt/csv/docx/xlsx 四类文件上传后预览页均返回 200 且内容正确（临时文件已清理）。
+- 自动化测试：P2-1 `tests/test_p2_production.py`（15 项）、P2-2 `tests/test_p2_warehouse_material.py`（10 项）、P2-3 `tests/test_p2_hard_delete.py`（15 项）、P2-4 `tests/test_p2_soft_delete_recycle.py`（5 项），全量 **258 passed**（P0/P1/QA/P2）。
+- 端到端实测（MySQL `FactoryManagementSystem` 库）：迁移后 15 张表新增 `is_deleted`；回收站菜单/页面可访问；删除后列表隐藏、回收站可见；恢复与库存重新入账可在操作日志追溯。

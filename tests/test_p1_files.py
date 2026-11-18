@@ -126,16 +126,13 @@ def test_preview_image_inline(client):
     assert 'inline' in resp2.headers.get('Content-Disposition', '')
 
 
-def test_preview_text_format_inline(client):
-    """txt 等文本格式支持在线预览，不再跳转下载。"""
+def test_preview_other_format_redirects_to_download(client):
+    """非图片/PDF 点预览 → 重定向到下载。"""
     login(client, 'admin', 'admin123')
     f = _upload(client, 'doc_file', 'all', ext='.txt')
     resp = client.get('/files/%d/preview' % f.id)
-    assert resp.status_code == 200
-    assert '内容-doc_file'.encode() in resp.data
-    assert f.file_ext == '.txt'
-    # 原始字节流端点仅服务图片/PDF，文本走解析后的预览页
-    assert client.get('/files/%d/preview_file' % f.id).status_code == 302
+    assert resp.status_code == 302
+    assert '/download' in resp.headers.get('Location', '')
 
 
 def test_preview_forbidden_403(client):

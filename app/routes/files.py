@@ -1,8 +1,8 @@
 """文件管理路由：分类、上传、列表检索、下载、预览（可见范围校验）。"""
 import os
 
-from flask import Blueprint, abort, current_app, flash, redirect, render_template, \
-    request, send_file, url_for
+from flask import Blueprint, current_app, flash, redirect, render_template, request, \
+    send_file, url_for
 from flask_login import current_user, login_required
 from sqlalchemy import or_
 
@@ -12,8 +12,6 @@ from app.forms.files import (FileCategoryForm, FileSearchForm, FileUploadForm,
                              fill_file_search_choices)
 from app.models.file import (FactoryFile, FileCategory, file_department_visibility,
                              file_role_visibility)
-from app.services.file_preview_service import (LEGACY_HINT, UNSUPPORTED_OFFICE,
-                                               build_preview, preview_kind)
 from app.services.soft_delete_service import mark_deleted
 from app.utils.permissions import has_permission, permission_required
 
@@ -107,9 +105,7 @@ def index():
     search_form.cat_id.data = cat_id or 0
     return render_template('files/index.html', pagination=pagination, cats=cats, cat_id=cat_id,
                            keyword=keyword, can_manage=can_manage, upload_form=upload_form,
-                           search_form=search_form,
-                           previewable_exts=(current_app.config['PREVIEW_EXTENSIONS']
-                                             | UNSUPPORTED_OFFICE))
+                           search_form=search_form)
 
 
 @bp.route('/upload', methods=['GET', 'POST'])
@@ -162,60 +158,42 @@ def upload():
 
 
 def _is_previewable(ext: str) -> bool:
-    """是否支持在线预览（图片/PDF 内联；文本/表格/Word/Excel 内容解析）。"""
-    return (ext or '').lower() in current_app.config['PREVIEW_EXTENSIONS']
-
-
-def _safe_file_path(file_rec) -> str:
-    """按磁盘存储名定位文件，禁止路径穿越（存储名本应为 uuid + 扩展名）。"""
-    folder = os.path.realpath(current_app.config['UPLOAD_FOLDER'])
-    path = os.path.realpath(os.path.join(folder, os.path.basename(file_rec.stored_filename)))
-    if os.path.commonpath([folder, path]) != folder:
-        abort(400)
-    return path
-
-
-def _visible_file_or_403(file_id):
-    """预览/下载共用：未删除 + 可见范围校验。"""
-    file_rec = db.get_or_404(FactoryFile, file_id)
-    if not file_rec.is_active or not file_rec.can_view(current_user):
-        abort(403)
-    return file_rec
+    """是否可内联预览（图片/PDF）。"""
+    return (ext or '').lower() in current_app.config.get(
+        'PREVIEW_EXTENSIONS', {'.pdf', '.png', '.jpg', '.jpeg', '.gif', '.webp'})
 
 
 @bp.route('/<int:file_id>/preview')
 @login_required
 @permission_required('files.view')
 def preview(file_id):
-    """统一在线预览页：图片/PDF 内联原始字节，其余格式按类型解析展示。"""
-    file_rec = _visible_file_or_403(file_id)
-    ext = (file_rec.file_ext or '').lower()
-    if not _is_previewable(ext):
-        # 旧版 Office 二进制格式给出明确提示，其余非文档格式直接下载
-        if ext in UNSUPPORTED_OFFICE:
-            return render_template('files/preview.html', file_rec=file_rec,
-                                   preview={'kind': 'unsupported', 'message': LEGACY_HINT})
+    """图片/PDF 内联预览（Content-Disposition: inline）；其他格式重定向下载。"""
+    file_rec = db.get_or_404(FactoryFile, file_id)
+    if not file_rec.is_active or not file_rec.can_view(current_user):
+        from flask import abort
+        abort(403)
+    if not _is_previewable(file_rec.file_ext):
         return redirect(url_for('files.download', file_id=file_id))
-    file_path = _safe_file_path(file_rec)
-    preview_ctx = build_preview(file_rec, file_path)
-    if preview_ctx['kind'] in ('image', 'pdf'):
-        if not os.path.exists(file_path):
-            flash('文件已丢失，请联系管理员', 'danger')
-            return redirect(url_for('files.index'))
-        preview_ctx['preview_url'] = url_for('files.preview_file', file_id=file_id)
-    return render_template('files/preview.html', file_rec=file_rec, preview=preview_ctx)
+    file_path = os.path.join(current_app.config['UPLOAD_FOLDER'], file_rec.stored_filename)
+    if not os.path.exists(file_path):
+        flash('文件已丢失，请联系管理员', 'danger')
+        return redirect(url_for('files.index'))
+    return render_template('files/preview.html', file_rec=file_rec,
+                           preview_url=url_for('files.preview_file', file_id=file_id))
 
 
 @bp.route('/<int:file_id>/preview_file')
 @login_required
 @permission_required('files.view')
 def preview_file(file_id):
-    """仅图片/PDF 内联返回原始字节流（供 <img>/<iframe> 引用）。"""
-    file_rec = _visible_file_or_403(file_id)
-    if preview_kind(file_rec.file_ext) not in ('image', 'pdf'):
-        return redirect(url_for('files.download', file_id=file_id))
-    file_path = _safe_file_path(file_rec)
+    """内联返回文件字节流（供 preview.html 的 <img>/<iframe> 引用）。"""
+    file_rec = db.get_or_404(FactoryFile, file_id)
+    if not file_rec.is_active or not file_rec.can_view(current_user):
+        from flask import abort
+        abort(403)
+    file_path = os.path.join(current_app.config['UPLOAD_FOLDER'], file_rec.stored_filename)
     if not os.path.exists(file_path):
+        from flask import abort
         abort(404)
     return send_file(file_path, as_attachment=False,
                      mimetype=None, download_name=file_rec.original_filename)
@@ -226,8 +204,11 @@ def preview_file(file_id):
 @permission_required('files.view')
 def download(file_id):
     """下载文件（越权返回 403）。"""
-    file_rec = _visible_file_or_403(file_id)
-    file_path = _safe_file_path(file_rec)
+    file_rec = db.get_or_404(FactoryFile, file_id)
+    if not file_rec.is_active or not file_rec.can_view(current_user):
+        from flask import abort
+        abort(403)
+    file_path = os.path.join(current_app.config['UPLOAD_FOLDER'], file_rec.stored_filename)
     if not os.path.exists(file_path):
         flash('文件已丢失，请联系管理员', 'danger')
         return redirect(url_for('files.index'))
