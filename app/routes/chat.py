@@ -43,11 +43,7 @@ def send():
     """发送消息（常规表单 POST，服务端渲染回聊天页）。"""
     form = ChatSendForm()
     if form.validate_on_submit():
-        try:
-            receiver_id = int(form.receiver_id.data)
-        except (TypeError, ValueError):
-            receiver_id = 0
-        receiver = db.session.get(User, receiver_id)
+        receiver = db.session.get(User, int(form.receiver_id.data))
         if receiver is None or not receiver.is_active or receiver.id == current_user.id:
             flash('接收人不存在或已停用', 'danger')
         else:

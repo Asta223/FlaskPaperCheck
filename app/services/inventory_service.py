@@ -84,7 +84,7 @@ def apply_stock_document(doc_type: str, warehouse_id: int, material_id: int, qua
             material_id=material.id,
             quantity=qty,
             handler_id=handler_id,
-            related_order_id=related_order_id or None,  # 规范化 0/空为 None，避免悬空外键
+            related_order_id=related_order_id,
             remark=remark or '',
             created_by=created_by,
         )

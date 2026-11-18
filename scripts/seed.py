@@ -105,7 +105,6 @@ def seed_sample_data() -> None:
             dept = Department(name=name, sort_order=0)
             db.session.add(dept)
         depts[name] = dept
-    db.session.flush()  # 取部门 id，避免后续 backref 触发 autoflush 告警
 
     # 示例员工（密码 123456，上线前务必修改！）
     sample_users = [
@@ -121,7 +120,7 @@ def seed_sample_data() -> None:
         user = User(username=username, employee_no=emp_no, name=name,
                     position=position, hire_date=now().date())
         user.set_password('123456')  # 示例账号初始密码，上线前务必修改！
-        user.department_id = depts[dept_name].id
+        user.department = depts[dept_name]
         role = Role.query.filter_by(code=role_code).first()
         if role:
             user.roles.append(role)

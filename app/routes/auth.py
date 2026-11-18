@@ -23,11 +23,7 @@ def login():
                 return render_template('login.html', form=form)
             login_user(user, remember=True)
             next_page = request.args.get('next')
-            # 开放重定向防护：仅允许本站相对路径（拒绝 //evil.com、/\evil.com、绝对 URL）
-            if (not next_page
-                    or not next_page.startswith('/')
-                    or next_page.startswith('//')
-                    or next_page.startswith('/\\')):
+            if not next_page or not next_page.startswith('/'):
                 next_page = url_for('main.index')
             return redirect(next_page)
         flash('用户名或密码错误', 'danger')
