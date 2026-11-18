@@ -3,7 +3,7 @@
 <h2>查重结果</h2>
 <div class="card mb-3">
     <div class="card-header">
-        课程报告标题：{{ record.paper.title }}
+        论文标题：{{ record.paper.title }}
     </div>
     <div class="card-body">
         <h5 class="card-title">总体相似度：{{ "%.2f"|format(record.similarity_score * 100) }}%</h5>
@@ -18,7 +18,7 @@
     <table class="table table-striped">
         <thead>
             <tr>
-                <th>课程报告标题</th>
+                <th>论文标题</th>
                 <th>相似度</th>
             </tr>
         </thead>

@@ -13,8 +13,8 @@
     </style>
 </head>
 <body>
-    <h1>课程报告查重报告</h1>
-    <p><strong>课程报告标题：</strong>{{ record.paper.title }}</p>
+    <h1>学术论文查重报告</h1>
+    <p><strong>论文标题：</strong>{{ record.paper.title }}</p>
     <p><strong>查重时间：</strong>{{ record.check_time.strftime('%Y-%m-%d %H:%M') }}</p>
     <p><strong>查重算法：</strong>{{ record.algorithm }}</p>
     <p><strong>总体相似度：</strong><span class="score">{{ "%.2f"|format(record.similarity_score * 100) }}%</span></p>
@@ -23,7 +23,7 @@
     {% if record.get_details().similar_papers %}
         <table>
             <thead>
-                <tr><th>课程报告标题</th><th>相似度</th></tr>
+                <tr><th>论文标题</th><th>相似度</th></tr>
             </thead>
             <tbody>
                 {% for item in record.get_details().similar_papers %}
