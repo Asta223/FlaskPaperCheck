@@ -16,13 +16,8 @@ P0 为 9 大业务模块；P1 增量已交付：请假申请与审批、迟到�
 # 1. 安装依赖（venv）
 venv\Scripts\python.exe -m pip install -r requirements.txt
 
-# 2. 配置（项目启动时自动读取根目录 .env，零新增依赖）
-#    完全不配置 DB_* 时自动使用本地 SQLite（factory_mgmt.db），
-#    一般无需任何操作；本地 .env 由 config.py 自动读取且不入库，
-#    如需覆盖可复制 .env.example 为 .env 后修改，或直接设置环境变量
-#    （真实环境变量优先级高于 .env）。
-#    例：set DB_ENGINE=sqlite    # bash: export DB_ENGINE=sqlite
-#    注：Flask CLI 若提示安装 python-dotenv 可忽略——config.py 已用标准库自动读取 .env。
+# 2. 配置环境变量（或复制 .env.example 为 .env）
+set DB_ENGINE=sqlite          # bash: export DB_ENGINE=sqlite
 
 # 3. 初始化数据库（仓库已含迁移脚本，直接 upgrade，勿重复运行 flask db migrate）
 flask db upgrade
