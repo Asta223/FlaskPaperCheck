@@ -2,22 +2,20 @@
 from datetime import datetime
 
 from app import db
-from app.models.mixins import SoftDeleteMixin
 from app.utils.time_utils import now
 
 
-class Process(SoftDeleteMixin, db.Model):
+class Process(db.Model):
     """工序档案（主数据）：工厂工序相对固定，由管理员统一维护，工单只能引用。
 
-    停用（is_active=False）与删除（is_deleted=True）是两个独立状态；
-    已被引用的工序不允许删除，历史工单步骤通过 name/code 快照保留当时的信息。
+    停用为软删（is_active=False），已被引用的工序不允许物理删除，
+    历史工单步骤通过 name/code 快照保留当时的信息。
     """
     __tablename__ = 'processes'
 
     id = db.Column(db.Integer, primary_key=True)
-    # 唯一性只校验未删除记录，软删后允许新建同编码/名称的工序
-    code = db.Column(db.String(32), nullable=False, comment='工序编码，如 OP01')
-    name = db.Column(db.String(64), nullable=False, comment='工序名称')
+    code = db.Column(db.String(32), nullable=False, unique=True, comment='工序编码，如 OP01')
+    name = db.Column(db.String(64), nullable=False, unique=True, comment='工序名称')
     standard_hours = db.Column(db.Float, nullable=False, default=0,
                                comment='参考工时（小时），仅作录入参考')
     sort_order = db.Column(db.Integer, nullable=False, default=0, comment='排序号')
@@ -29,7 +27,7 @@ class Process(SoftDeleteMixin, db.Model):
         return '<Process %s %s>' % (self.code, self.name)
 
 
-class WorkOrder(SoftDeleteMixin, db.Model):
+class WorkOrder(db.Model):
     """生产工单。状态机：pending→in_progress→completed→accepted（仅允许相邻流转）。"""
     __tablename__ = 'work_orders'
 
@@ -74,7 +72,7 @@ class WorkOrder(SoftDeleteMixin, db.Model):
         return '<WorkOrder %s>' % self.order_no
 
 
-class WorkOrderStep(SoftDeleteMixin, db.Model):
+class WorkOrderStep(db.Model):
     """工序行项：pending→in_progress→completed。"""
     __tablename__ = 'work_order_steps'
 

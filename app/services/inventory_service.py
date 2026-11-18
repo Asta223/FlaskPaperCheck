@@ -35,15 +35,13 @@ def _generate_doc_no(doc_type: str) -> str:
     seq = 1
     while True:
         doc_no = '%s%s%04d' % (prefix, date_str, seq)
-        exists = (StockDocument.query.execution_options(include_deleted=True)
-                  .filter_by(doc_no=doc_no).first())
-        if not exists:
+        if not StockDocument.query.filter_by(doc_no=doc_no).first():
             return doc_no
         seq += 1
 
 
 def reverse_stock_document(doc: StockDocument, operator_id: int) -> int:
-    """软删除单据时反向冲销库存，并追加一条冲销流水（同事务）。
+    """彻底删除单据时反向冲销库存，并追加一条冲销流水（同事务）。
 
     - 原入库单 → 从库存扣回数量；库存已被后续出库消耗则拒绝删除；
     - 原出库单 → 把数量加回库存；
@@ -83,48 +81,8 @@ def reverse_stock_document(doc: StockDocument, operator_id: int) -> int:
         after_balance=after,
         related_order_id=doc.related_order_id,
         handler_id=operator_id,
-        remark='冲销单据 %s（删除%s单，回收站可恢复）' % (
+        remark='冲销单据 %s（彻底删除%s单）' % (
             doc.doc_no, '入' if doc.doc_type == 'in' else '出'),
-        created_at=now(),
-    ))
-    return after
-
-
-def restore_stock_document(doc: StockDocument, operator_id: int) -> int:
-    """回收站恢复单据时重新入账：按原方向调整库存并追加恢复流水（同事务）。
-
-    - 原入库单：库存加回（删除时已扣回）；
-    - 原出库单：库存再次扣减（删除时已加回），余量不足则拒绝恢复；
-    - 原单据不新建、单号不变，流水以 -RS 后缀区分（审计可追溯）。
-    """
-    inv = (Inventory.query
-           .filter_by(warehouse_id=doc.warehouse_id, material_id=doc.material_id)
-           .with_for_update().first())
-    before = (inv.quantity or 0) if inv is not None else 0
-    if doc.doc_type == 'out':
-        if before < doc.quantity:
-            db.session.rollback()
-            raise InsufficientStockError(before)
-        after = before - doc.quantity
-    else:  # in：加回
-        after = before + doc.quantity
-    if inv is None:
-        inv = Inventory(warehouse_id=doc.warehouse_id, material_id=doc.material_id,
-                        quantity=0, warn_threshold=0)
-        db.session.add(inv)
-    inv.quantity = after
-
-    db.session.add(StockLedger(
-        doc_no='%s-RS' % doc.doc_no,
-        doc_type=doc.doc_type,
-        warehouse_id=doc.warehouse_id,
-        material_id=doc.material_id,
-        quantity=doc.quantity,
-        before_balance=before,
-        after_balance=after,
-        related_order_id=doc.related_order_id,
-        handler_id=operator_id,
-        remark='恢复单据 %s（回收站恢复重新入账）' % doc.doc_no,
         created_at=now(),
     ))
     return after

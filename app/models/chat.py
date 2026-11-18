@@ -1,10 +1,9 @@
 """站内聊天模型：一对一消息。"""
 from app import db
-from app.models.mixins import SoftDeleteMixin
 from app.utils.time_utils import now
 
 
-class ChatMessage(SoftDeleteMixin, db.Model):
+class ChatMessage(db.Model):
     """私聊消息：is_read 默认 False，接收方打开会话/轮询时标记已读。"""
     __tablename__ = 'chat_messages'
     __table_args__ = (

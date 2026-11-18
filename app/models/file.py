@@ -2,7 +2,6 @@
 import uuid
 
 from app import db
-from app.models.mixins import SoftDeleteMixin
 from app.utils.time_utils import now
 
 # 文件-角色 可见范围 多对多关联表
@@ -20,7 +19,7 @@ file_department_visibility = db.Table(
 )
 
 
-class FileCategory(SoftDeleteMixin, db.Model):
+class FileCategory(db.Model):
     """文件分类：parent_id 自引用，可空为根分类。"""
     __tablename__ = 'file_categories'
 
@@ -36,7 +35,7 @@ class FileCategory(SoftDeleteMixin, db.Model):
         return '<FileCategory %s>' % self.name
 
 
-class FactoryFile(SoftDeleteMixin, db.Model):
+class FactoryFile(db.Model):
     """工厂文件：磁盘文件名用 uuid 防冲突，原文件名存库；可见范围 all/roles。"""
     __tablename__ = 'factory_files'
 

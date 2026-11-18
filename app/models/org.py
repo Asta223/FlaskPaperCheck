@@ -1,9 +1,8 @@
 """组织架构：部门（邻接表树形 + 负责人）。"""
 from app import db
-from app.models.mixins import SoftDeleteMixin
 
 
-class Department(SoftDeleteMixin, db.Model):
+class Department(db.Model):
     """部门：parent_id 自引用树；leader_id 用 use_alter 解 User↔Department 循环外键。"""
     __tablename__ = 'departments'
 

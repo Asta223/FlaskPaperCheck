@@ -70,7 +70,7 @@
                                 {{ msg.content }}
                                 <span class="time">{{ msg.created_at | fmt_dt }} · {{ msg.sender.display_name() if msg.sender else '' }}</span>
                                 {% if mine %}
-                                    <button type="button" class="msg-del" data-id="{{ msg.id }}" title="撤回消息（可在回收站恢复）">&times;</button>
+                                    <button type="button" class="msg-del" data-id="{{ msg.id }}" title="彻底删除这条消息">&times;</button>
                                 {% endif %}
                             </div>
                         {% endfor %}
@@ -121,7 +121,7 @@
                 del.type = 'button';
                 del.className = 'msg-del';
                 del.dataset.id = msg.id;
-                del.title = '撤回消息（可在回收站恢复）';
+                del.title = '彻底删除这条消息';
                 del.textContent = '\u00d7';
                 div.appendChild(del);
             }
@@ -148,10 +148,10 @@
         setInterval(poll, 5000);
         box.scrollTop = box.scrollHeight;
 
-        // 撤回自己的消息（软删除，事件委托兼容轮询动态追加的历史消息）
+        // 彻底删除自己的消息（事件委托，兼容轮询动态追加的历史消息）
         box.addEventListener('click', function (e) {
             var btn = e.target.closest('.msg-del');
-            if (!btn || !confirm('撤回这条消息？可在回收站恢复。')) return;
+            if (!btn || !confirm('彻底删除这条消息？该操作不可恢复。')) return;
             var tokenEl = document.querySelector('input[name="csrf_token"]');
             fetch('/chat/messages/' + encodeURIComponent(btn.dataset.id) + '/delete', {
                 method: 'POST',
@@ -189,7 +189,7 @@
                 delBtn.type = 'button';
                 delBtn.className = 'msg-del';
                 delBtn.dataset.id = msg.id;
-                delBtn.title = '撤回消息（可在回收站恢复）';
+                delBtn.title = '彻底删除这条消息';
                 delBtn.textContent = '\u00d7';
                 div.appendChild(delBtn);
             }

@@ -187,7 +187,7 @@ def test_step_delete_only_pending(client):
     token = get_csrf(client, '/production/orders/%d' % order.id)
     client.post('/production/steps/%d/delete' % todo.id,
                 data={'csrf_token': token}, follow_redirects=True)
-    assert WorkOrderStep.query.get(todo.id).is_deleted is True
+    assert WorkOrderStep.query.get(todo.id) is None
 
 
 # ---------------- 看板 ----------------

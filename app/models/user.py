@@ -3,7 +3,6 @@ from flask_login import UserMixin
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from app import db, login_manager
-from app.models.mixins import SoftDeleteMixin
 from app.utils.time_utils import now
 
 # 用户-角色 多对多关联表
@@ -14,14 +13,13 @@ user_roles = db.Table(
 )
 
 
-class User(UserMixin, SoftDeleteMixin, db.Model):
+class User(UserMixin, db.Model):
     """员工账号：既是登录主体，也是人员档案（工号/部门/岗位/入职离职）。"""
     __tablename__ = 'users'
 
     id = db.Column(db.Integer, primary_key=True)
-    # 唯一性由业务层只校验未删除记录（软删记录仍占库，故不放数据库唯一约束）
-    username = db.Column(db.String(64), nullable=False, comment='登录名')
-    employee_no = db.Column(db.String(32), nullable=False, comment='工号')
+    username = db.Column(db.String(64), unique=True, nullable=False, comment='登录名')
+    employee_no = db.Column(db.String(32), unique=True, nullable=False, comment='工号')
     name = db.Column(db.String(64), nullable=False, comment='真实姓名')
     email = db.Column(db.String(120), nullable=True, comment='邮箱，可空')
     phone = db.Column(db.String(20), nullable=True, comment='手机号，可空')

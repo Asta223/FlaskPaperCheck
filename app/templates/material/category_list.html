@@ -16,9 +16,14 @@
                                     <a class="small" href="{{ url_for('material.category_list', edit_id=c.id) }}">编辑</a>
                                     <a class="small" href="{{ url_for('material.category_list', parent_id=c.id) if false else '#' }}" onclick="document.getElementById('catParent').value='{{ c.id }}';return false;">+子分类</a>
                                     <form class="d-inline" method="POST" action="{{ url_for('material.category_delete', cat_id=c.id) }}"
-                                          onsubmit="return confirm('删除分类「{{ c.name }}」？可在回收站恢复，且仅当无子分类/物料引用时允许。');">
+                                          onsubmit="return confirm('确认停用分类「{{ c.name }}」？');">
                                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                                        <button class="btn btn-link btn-sm text-danger p-0 small" type="submit">删除</button>
+                                        <button class="btn btn-link btn-sm text-danger p-0 small" type="submit">停用</button>
+                                    </form>
+                                    <form class="d-inline" method="POST" action="{{ url_for('material.category_purge', cat_id=c.id) }}"
+                                          onsubmit="return confirm('彻底删除分类「{{ c.name }}」？该操作不可恢复，且仅当无子分类/物料引用时允许。');">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                        <button class="btn btn-link btn-sm text-danger p-0 small" type="submit">彻底删除</button>
                                     </form>
                                 </span>
                                 {{ render_cat(cats, c.id) }}

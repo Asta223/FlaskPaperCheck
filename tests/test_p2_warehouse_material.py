@@ -56,7 +56,7 @@ def test_warehouse_create_edit_toggle_delete(client):
     token = get_csrf(client, '/warehouse/warehouses')
     client.post('/warehouse/warehouses/%d/delete' % w.id,
                 data={'csrf_token': token}, follow_redirects=True)
-    assert db.session.get(Warehouse, w.id).is_deleted is True
+    assert db.session.get(Warehouse, w.id) is None
 
 
 def test_warehouse_toggle_reject_when_has_stock(client):

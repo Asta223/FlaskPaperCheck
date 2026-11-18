@@ -25,9 +25,14 @@
                                     <a class="small" href="{{ url_for('hr.departments', edit_id=node.dept.id) }}">编辑</a>
                                     <a class="small" href="{{ url_for('hr.departments', parent_id=node.dept.id) }}">+子部门</a>
                                     <form class="d-inline" method="POST" action="{{ url_for('hr.department_delete', dept_id=node.dept.id) }}"
-                                          onsubmit="return confirm('删除部门「{{ node.dept.name }}」？可在回收站恢复，且仅当无子部门/在职员工时允许。');">
+                                          onsubmit="return confirm('确认停用部门「{{ node.dept.name }}」？');">
                                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                                        <button class="btn btn-link btn-sm text-danger p-0 small" type="submit">删除</button>
+                                        <button class="btn btn-link btn-sm text-danger p-0 small" type="submit">停用</button>
+                                    </form>
+                                    <form class="d-inline" method="POST" action="{{ url_for('hr.department_purge', dept_id=node.dept.id) }}"
+                                          onsubmit="return confirm('彻底删除部门「{{ node.dept.name }}」？该操作不可恢复，且仅当无业务记录引用时允许。');">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                        <button class="btn btn-link btn-sm text-danger p-0 small" type="submit">彻底删除</button>
                                     </form>
                                 </span>
                                 {% if node.children %}{{ render_tree(node.children) }}{% endif %}

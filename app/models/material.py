@@ -1,9 +1,8 @@
 """物料模型：分类（自引用树）+ 物料档案。"""
 from app import db
-from app.models.mixins import SoftDeleteMixin
 
 
-class MaterialCategory(SoftDeleteMixin, db.Model):
+class MaterialCategory(db.Model):
     """物料分类：parent_id 自引用，可空为根分类。"""
     __tablename__ = 'material_categories'
 
@@ -19,13 +18,12 @@ class MaterialCategory(SoftDeleteMixin, db.Model):
         return '<MaterialCategory %s>' % self.name
 
 
-class Material(SoftDeleteMixin, db.Model):
+class Material(db.Model):
     """物料档案：编码唯一；与仓库库存（Inventory）关联查询。"""
     __tablename__ = 'materials'
 
     id = db.Column(db.Integer, primary_key=True)
-    # 唯一性只校验未删除记录，软删后允许新建同编码物料
-    code = db.Column(db.String(32), nullable=False, comment='物料编码')
+    code = db.Column(db.String(32), unique=True, nullable=False, comment='物料编码')
     name = db.Column(db.String(128), nullable=False, comment='物料名称')
     spec = db.Column(db.String(128), nullable=False, default='', comment='规格')
     unit = db.Column(db.String(16), nullable=False, default='个', comment='单位')

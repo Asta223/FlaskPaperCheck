@@ -1,6 +1,5 @@
 """RBAC 模型：角色、权限点、角色-权限关联表。"""
 from app import db
-from app.models.mixins import SoftDeleteMixin
 
 # 角色-权限 多对多关联表
 role_permissions = db.Table(
@@ -10,12 +9,12 @@ role_permissions = db.Table(
 )
 
 
-class Role(SoftDeleteMixin, db.Model):
+class Role(db.Model):
     """角色。内置角色（is_builtin）不可删除，权限可调。"""
     __tablename__ = 'roles'
 
     id = db.Column(db.Integer, primary_key=True)
-    code = db.Column(db.String(32), nullable=False,
+    code = db.Column(db.String(32), unique=True, nullable=False,
                      comment='编码：superadmin/leader/keeper/producer/staff/archivist')
     name = db.Column(db.String(64), nullable=False, comment='中文名称')
     is_builtin = db.Column(db.Boolean, nullable=False, default=False, comment='内置角色不可删')

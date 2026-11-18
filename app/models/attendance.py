@@ -1,14 +1,13 @@
 """考勤模型：每日打卡记录。"""
 from app import db
-from app.models.mixins import SoftDeleteMixin
 
 
-class AttendanceRecord(SoftDeleteMixin, db.Model):
-    """打卡记录：未删除的 (user_id, work_date) 每日一条，由业务层保证。
-
-    软删后同一天可重新签到（旧记录保留在回收站），因此不放数据库唯一约束。
-    """
+class AttendanceRecord(db.Model):
+    """打卡记录：(user_id, work_date) 唯一，每日一条；签到后重复点签到=幂等不改动。"""
     __tablename__ = 'attendance_records'
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'work_date', name='uq_attendance_user_date'),
+    )
 
     # day_status 短码（逗号分隔组合位）：normal / late / early / late,early / absent / leave
     DAY_NORMAL = 'normal'
@@ -22,7 +21,6 @@ class AttendanceRecord(SoftDeleteMixin, db.Model):
     }
 
     id = db.Column(db.Integer, primary_key=True)
-    # 唯一性由 clock 路由只校验未删除记录（全局查询自动过滤）
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, comment='员工')
     work_date = db.Column(db.Date, nullable=False, comment='打卡日期')
     check_in_at = db.Column(db.DateTime, nullable=True, comment='签到时间')

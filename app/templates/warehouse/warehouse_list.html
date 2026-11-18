@@ -43,7 +43,7 @@
                                 </form>
                                 {% if not wh.inventories %}
                                     <form class="d-inline" method="POST" action="{{ url_for('warehouse.warehouse_delete', warehouse_id=wh.id) }}"
-                                          onsubmit="return confirm('删除仓库「{{ wh.name }}」？页面将不再显示，可在回收站恢复。');">
+                                          onsubmit="return confirm('彻底删除仓库「{{ wh.name }}」不可恢复，确认？');">
                                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                         <button class="btn btn-sm btn-outline-danger" type="submit">删除</button>
                                     </form>

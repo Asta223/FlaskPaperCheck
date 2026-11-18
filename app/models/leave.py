@@ -1,10 +1,9 @@
 """P1 请假模型：LeaveRequest（单级审批状态机 pending→approved/rejected）。"""
 from app import db
-from app.models.mixins import SoftDeleteMixin
 from app.utils.time_utils import now
 
 
-class LeaveRequest(SoftDeleteMixin, db.Model):
+class LeaveRequest(db.Model):
     """请假申请：申请人/部门自动带入；部门主管一级审批即终态（A3）。"""
     __tablename__ = 'leave_requests'
     __table_args__ = (

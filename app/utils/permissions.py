@@ -55,7 +55,6 @@ PERMISSION_REGISTRY = {
     '系统管理': {
         'system.log.view': '操作日志查看',
         'system.export': '数据导出',
-        'system.recycle': '回收站管理',
     },
 }
 
