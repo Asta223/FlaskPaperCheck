@@ -12,6 +12,7 @@ from app.forms.files import (FileCategoryForm, FileSearchForm, FileUploadForm,
                              fill_file_search_choices)
 from app.models.file import (FactoryFile, FileCategory, file_department_visibility,
                              file_role_visibility)
+from app.services.log_service import log_operation
 from app.services.soft_delete_service import mark_deleted
 from app.utils.permissions import has_permission, permission_required
 
