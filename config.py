@@ -116,7 +116,7 @@ def _build_default_db_uri():
         pw=os.environ.get('DB_PASSWORD', '123'),
         host=os.environ.get('DB_HOST', 'localhost'),
         port=os.environ.get('DB_PORT', '3306'),
-        db=os.environ.get('DB_NAME', 'FactoryManagementSystem'),
+        db=os.environ.get('DB_NAME', 'factory_mgmt'),
     )
 
 
