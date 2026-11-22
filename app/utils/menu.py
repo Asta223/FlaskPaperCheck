@@ -25,8 +25,6 @@ MENU_REGISTRY = [
         'children': [
             {'name': '人员管理', 'endpoint': 'hr.employee_list', 'permission': 'hr.view'},
             {'name': '部门管理', 'endpoint': 'hr.departments', 'permission': 'dept.manage'},
-            {'name': '角色权限', 'endpoint': 'rbac.role_list', 'permission': 'rbac.manage'},
-            {'name': '权限点总览', 'endpoint': 'rbac.permission_list', 'permission': 'rbac.manage'},
         ],
     },
     {
@@ -47,7 +45,10 @@ MENU_REGISTRY = [
         'children': [
             {'name': '生产工单', 'endpoint': 'production.order_list', 'permission': 'production.view'},
             {'name': '进度看板', 'endpoint': 'production.board', 'permission': 'production.view'},
+            {'name': '产品档案', 'endpoint': 'production.product_list', 'permission': 'production.view'},
+            {'name': '客户档案', 'endpoint': 'production.customer_list', 'permission': 'production.view'},
             {'name': '工序档案', 'endpoint': 'production.process_list', 'permission': 'production.view'},
+            {'name': '工艺路线', 'endpoint': 'production.process_route_list', 'permission': 'production.view'},
             {'name': '不良原因', 'endpoint': 'production.defect_reason_list', 'permission': 'production.view'},
         ],
     },
@@ -57,7 +58,9 @@ MENU_REGISTRY = [
         'children': [
             {'name': '物料分类', 'endpoint': 'material.category_list', 'permission': 'material.manage'},
             {'name': '物料档案', 'endpoint': 'material.material_list', 'permission': 'material.manage'},
+            {'name': '单位档案', 'endpoint': 'warehouse.unit_list', 'permission': 'material.unit.manage'},
             {'name': '仓库档案', 'endpoint': 'warehouse.warehouse_list', 'permission': 'warehouse.manage'},
+            {'name': '供应商档案', 'endpoint': 'warehouse.supplier_list', 'permission': 'warehouse.view'},
             {'name': '出入库单据', 'endpoint': 'warehouse.doc_list', 'permission': 'warehouse.manage'},
             {'name': '库存查询', 'endpoint': 'warehouse.inventory', 'permission': 'warehouse.view'},
             {'name': '库存流水', 'endpoint': 'warehouse.ledger', 'permission': 'warehouse.ledger.view'},
@@ -80,6 +83,8 @@ MENU_REGISTRY = [
         'name': '系统管理',
         'icon': 'bi-gear',
         'children': [
+            {'name': '角色权限', 'endpoint': 'rbac.role_list', 'permission': 'rbac.manage'},
+            {'name': '权限点总览', 'endpoint': 'rbac.permission_list', 'permission': 'rbac.manage'},
             {'name': '操作日志', 'endpoint': 'system.operation_logs', 'permission': 'system.log.view'},
             {'name': '回收站', 'endpoint': 'system.recycle', 'permission': 'system.recycle'},
         ],

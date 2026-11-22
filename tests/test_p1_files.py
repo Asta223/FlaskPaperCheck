@@ -5,7 +5,7 @@ import io
 from conftest import get_csrf, login
 
 from app import db
-from app.models import Department, FactoryFile, User
+from app.models import Department, FactoryFile, FileCategory, User
 
 
 def _dept(name):
@@ -180,3 +180,22 @@ def test_parent_dept_user_does_not_see_child_authorized_file(client):
     resp = client.get('/files/')
     assert 'child_auth'.encode() not in resp.data, '父部门用户不应看到子部门授权文件'
     assert client.get('/files/%d/download' % f.id).status_code == 403
+
+
+def test_category_new_form_submits_csrf_token(client):
+    """回归：新增分类弹窗必须渲染隐藏 csrf_token 字段，否则提交报 400。"""
+    login(client, 'admin', 'admin123')
+    page = client.get('/files/')
+    assert page.status_code == 200
+    assert b'<form method="POST" action="/files/categories/new">' in page.data
+    # 模态框内应为真正的 hidden input，而不是裸 token 文本
+    modal = page.data.split(b'id="categoryModal"', 1)[1].split(b'</form>', 1)[0]
+    assert b'<input type="hidden" name="csrf_token"' in modal
+
+    token = get_csrf(client, '/files/')
+    resp = client.post('/files/categories/new',
+                       data={'csrf_token': token, 'name': '回归测试分类', 'parent_id': 0},
+                       follow_redirects=True)
+    assert resp.status_code == 200, '不应再返回 400 Bad Request'
+    assert b'\xe5\x88\x86\xe7\xb1\xbb\xe5\x88\x9b\xe5\xbb\xba\xe6\x88\x90\xe5\x8a\x9f' in resp.data
+    assert FileCategory.query.filter_by(name='回归测试分类').first() is not None

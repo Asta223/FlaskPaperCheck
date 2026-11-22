@@ -16,13 +16,13 @@
                 </select>
             </div>
             <div class="col-auto">
-                <button class="btn btn-outline-primary" type="submit">筛选</button>
+                <button class="btn btn-outline-primary" type="submit">查询</button>
             </div>
         </form>
         <div class="table-responsive">
             <table class="table table-hover align-middle mb-0">
                 <thead class="table-light">
-                <tr><th>单据号</th><th>类型</th><th>仓库</th><th>物料</th><th>数量(单位)</th><th>经手人</th><th>关联工单</th><th>备注</th><th>时间</th><th class="text-end">操作</th></tr>
+                <tr><th>单据号</th><th>类型</th><th>仓库</th><th>物料</th><th>数量(单位)</th><th>经手人</th><th>关联工单</th><th>供应商</th><th>备注</th><th>时间</th><th class="text-end">操作</th></tr>
                 </thead>
                 <tbody>
                 {% for doc in pagination.items %}
@@ -34,9 +34,17 @@
                         </td>
                         <td>{{ doc.warehouse.name if doc.warehouse else '-' }}</td>
                         <td>{{ doc.material.name if doc.material else '-' }}</td>
-                        <td>{{ doc.quantity }}{% if doc.material and doc.material.unit %} {{ doc.material.unit }}{% endif %}</td>
+                        <td>
+                            {% if doc.unit_name and doc.input_quantity is not none %}
+                                {{ doc.input_quantity }} {{ doc.unit_name }}
+                                <div class="small text-muted">折合 {{ doc.quantity }} {{ doc.material.unit if doc.material else '' }}</div>
+                            {% else %}
+                                {{ doc.quantity }}{% if doc.material and doc.material.unit %} {{ doc.material.unit }}{% endif %}
+                            {% endif %}
+                        </td>
                         <td>{{ doc.handler.display_name() if doc.handler else '-' }}</td>
                         <td>{{ doc.related_order.order_no if doc.related_order else '-' }}</td>
+                        <td>{{ doc.supplier.name if doc.supplier else '-' }}</td>
                         <td class="text-muted">{{ doc.remark or '-' }}</td>
                         <td>{{ doc.created_at | fmt_dt }}</td>
                         <td class="text-end">
@@ -52,7 +60,7 @@
                         </td>
                     </tr>
                 {% else %}
-                    <tr><td colspan="10" class="text-center text-muted py-4">暂无单据</td></tr>
+                    <tr><td colspan="11" class="text-center text-muted py-4">暂无单据</td></tr>
                 {% endfor %}
                 </tbody>
             </table>

@@ -145,8 +145,9 @@ def test_issue_modal_label_and_stock_api_unit(client):
     html = client.get('/production/orders/%d' % o.id).get_data(as_text=True)
     assert 'id="issueQuantityLabel"' in html, '数量 label 缺少 id="issueQuantityLabel"'
     assert "getElementById('issueQuantityLabel')" in html, 'JS 未获取数量 label'
-    assert "'数量(' + d.unit + ')'" in html, 'JS 未用 api_stock 的 unit 联动 label'
-    assert 'unitText' in html, 'JS 未用 unit 联动余量提示/库存不足警告'
+    assert "'数量（' + (unitName || baseUnit || '基本单位') + '）'" in html, \
+        'JS 未用 api_stock 的 unit 联动 label'
+    assert 'baseUnit = d.unit' in html, 'JS 未用 unit 联动余量提示/库存不足警告'
 
     # Assert — api_stock 成功分支：新增 unit，且原有字段全部保留（向后兼容）
     r = client.get('/production/api/stock?warehouse_id=%d&material_id=%d' % (w.id, m.id))

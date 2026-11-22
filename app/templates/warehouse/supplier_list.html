@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block title %}供应商档案 - 工厂管理系统{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h4 class="mb-0"><i class="bi bi-truck"></i> 供应商档案</h4>
+    <span class="text-muted small">维护送货供应商主数据，入库单直接引用，便于按供应商追溯来料</span>
+</div>
+
+<div class="row">
+    <div class="col-lg-5">
+        <div class="card shadow-sm mb-3">
+            <div class="card-header bg-white">
+                <i class="bi bi-plus-lg"></i> {{ '编辑供应商' if supplier else '新增供应商' }}
+            </div>
+            <div class="card-body">
+                {% if 'warehouse.supplier.manage' in current_user|perm_codes %}
+                    <form method="POST" class="row g-3"
+                          action="{{ url_for('warehouse.supplier_edit', supplier_id=supplier.id) if supplier else url_for('warehouse.supplier_new') }}">
+                        {{ form.hidden_tag() }}
+                        <div class="col-md-6">
+                            {{ form.code.label(class="form-label") }}
+                            {{ form.code(class="form-control", placeholder="如 SUP001") }}
+                            {% for err in form.code.errors %}<div class="text-danger small">{{ err }}</div>{% endfor %}
+                        </div>
+                        <div class="col-md-6">
+                            {{ form.name.label(class="form-label") }}
+                            {{ form.name(class="form-control", placeholder="如 某某五金厂") }}
+                            {% for err in form.name.errors %}<div class="text-danger small">{{ err }}</div>{% endfor %}
+                        </div>
+                        <div class="col-md-6">
+                            {{ form.contact.label(class="form-label") }}
+                            {{ form.contact(class="form-control") }}
+                        </div>
+                        <div class="col-md-6">
+                            {{ form.phone.label(class="form-label") }}
+                            {{ form.phone(class="form-control") }}
+                        </div>
+                        <div class="col-12">
+                            {{ form.address.label(class="form-label") }}
+                            {{ form.address(class="form-control") }}
+                        </div>
+                        <div class="col-12">
+                            {{ form.tax_no.label(class="form-label") }}
+                            {{ form.tax_no(class="form-control") }}
+                        </div>
+                        <div class="col-12">
+                            {{ form.remark.label(class="form-label") }}
+                            {{ form.remark(class="form-control", rows=2) }}
+                        </div>
+                        <div class="col-12">
+                            {{ form.submit(class="btn btn-primary") }}
+                            {% if supplier %}
+                                <a class="btn btn-outline-secondary" href="{{ url_for('warehouse.supplier_list') }}">取消编辑</a>
+                            {% endif %}
+                        </div>
+                    </form>
+                {% else %}
+                    <p class="text-muted mb-0">你没有供应商档案维护权限，只能查看列表。</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-7">
+        <div class="card shadow-sm">
+            <div class="card-header bg-white"><i class="bi bi-table"></i> 已维护供应商（{{ suppliers|length }}）</div>
+            <div class="card-body p-0">
+                <table class="table table-hover mb-0 align-middle">
+                    <thead class="table-light">
+                    <tr><th>编号</th><th>供应商名称</th><th>联系人</th><th>电话</th><th>状态</th><th class="text-end">操作</th></tr>
+                    </thead>
+                    <tbody>
+                    {% for s in suppliers %}
+                        <tr class="{% if not s.is_active %}text-muted{% endif %}">
+                            <td>{{ s.code }}</td>
+                            <td class="fw-bold">{{ s.name }}</td>
+                            <td>{{ s.contact or '-' }}</td>
+                            <td>{{ s.phone or '-' }}</td>
+                            <td>
+                                {% if s.is_active %}<span class="badge bg-success">启用</span>
+                                {% else %}<span class="badge bg-secondary">停用</span>{% endif %}
+                            </td>
+                            <td class="text-end">
+                                {% if 'warehouse.supplier.manage' in current_user|perm_codes %}
+                                    <a class="btn btn-sm btn-outline-primary"
+                                       href="{{ url_for('warehouse.supplier_list', edit_id=s.id) }}">编辑</a>
+                                    <form class="d-inline" method="POST"
+                                          action="{{ url_for('warehouse.supplier_toggle', supplier_id=s.id) }}">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                        <button class="btn btn-sm btn-outline-warning" type="submit">
+                                            {{ '启用' if not s.is_active else '停用' }}
+                                        </button>
+                                    </form>
+                                    <form class="d-inline" method="POST"
+                                          action="{{ url_for('warehouse.supplier_delete', supplier_id=s.id) }}"
+                                          onsubmit="return confirm('删除供应商「{{ s.name }}」？历史单据不受影响，可在回收站恢复。');">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                        <button class="btn btn-sm btn-outline-danger" type="submit" title="删除（可在回收站恢复）">
+                                            <i class="bi bi-trash3"></i>
+                                        </button>
+                                    </form>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% else %}
+                        <tr><td colspan="6" class="text-center text-muted py-3">暂无供应商，请在左侧新增</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -19,9 +19,10 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app import create_app, db  # noqa: E402
-from app.models import (AttendanceRecord, Department, Inventory, Material,  # noqa: E402
-                        MaterialCategory, Process, Role, User, Warehouse, WorkOrder,
-                        WorkOrderStep)
+from app.models import (AttendanceRecord, BomItem, Customer, Department, Inventory,  # noqa: E402
+                        Material, MaterialCategory, Process, Product, ProcessRoute,
+                        ProcessRouteItem, Role, Supplier, Unit, UnitConversion, User,
+                        Warehouse, WorkOrder, WorkOrderStep)
 from app.utils.permissions import ALL_PERMISSION_CODES, PERMISSION_REGISTRY  # noqa: E402
 from app.utils.time_utils import now  # noqa: E402
 
@@ -29,18 +30,22 @@ from app.utils.time_utils import now  # noqa: E402
 BUILTIN_ROLES = [
     ('superadmin', '超级管理员', sorted(ALL_PERMISSION_CODES), '内置角色：全权限（代码硬编码放行）'),
     ('leader', '部门主管', ['hr.view', 'attendance.clock', 'attendance.view', 'attendance.view_all',
-                            'production.view', 'production.manage', 'production.process.manage',
-                            'production.defect_reason.manage',
+                            'production.view', 'production.manage', 'production.product.manage',
+                            'production.process.manage', 'production.route.manage',
+                            'production.defect_reason.manage', 'production.customer.manage',
                             'files.view', 'attendance.leave.apply', 'attendance.leave.approve',
                             'attendance.summary.view', 'system.export'],
      '内置角色：本部门人员/考勤、打卡、工单调度、请假审批、导出'),
     ('keeper', '仓管员', ['attendance.clock', 'warehouse.view', 'warehouse.manage',
-                          'material.manage', 'files.view', 'warehouse.ledger.view',
-                          'production.issue', 'attendance.leave.apply'],
+                          'material.manage', 'material.unit.manage', 'files.view',
+                          'warehouse.ledger.view', 'warehouse.supplier.manage', 'production.issue',
+                          'attendance.leave.apply'],
      '内置角色：打卡/出入库/库存/物料/流水/领料'),
     ('producer', '生产管理员', ['attendance.clock', 'production.view', 'production.manage',
-                                'production.process.manage', 'production.defect_reason.manage',
-                                'warehouse.view', 'material.manage',
+                                'production.product.manage', 'production.process.manage',
+                                'production.route.manage', 'production.defect_reason.manage',
+                                'production.customer.manage',
+                                'warehouse.view', 'material.manage', 'material.unit.manage',
                                 'files.view', 'production.issue', 'attendance.leave.apply'],
      '内置角色：打卡/工单创建与流转、领料'),
     ('staff', '普通员工', ['attendance.clock', 'attendance.view', 'files.view',
@@ -156,7 +161,7 @@ def seed_sample_data() -> None:
         db.session.add(cat2)
 
     sample_materials = [
-        ('M0001', '内六角螺丝', 'M8×30', '盒', '五金件', '原材料仓 A区-03排-2层'),
+        ('M0001', '内六角螺丝', 'M8×30', '个', '五金件', '原材料仓 A区-03排-2层'),
         ('M0002', '轴承', '6204', '个', '五金件', '原材料仓 B区-01排-1层'),
         ('M0003', '纸箱', '400×300×200', '个', '包装耗材', '成品仓 C区-02排'),
     ]
@@ -167,6 +172,24 @@ def seed_sample_data() -> None:
         db.session.add(Material(code=code, name=name, spec=spec, unit=unit,
                                 storage_location=location, category=category))
 
+    # 计量单位与示例换算：1盒螺丝 = 100个（库存基本单位=个）
+    sample_units = [
+        ('PCS', '个', 'quantity'), ('BOX', '盒', 'quantity'), ('CTN', '箱', 'quantity'),
+        ('KG', '千克', 'weight'), ('M', '米', 'length'),
+    ]
+    for code, name, dimension in sample_units:
+        if Unit.query.filter_by(code=code).first() is None:
+            db.session.add(Unit(code=code, name=name, dimension=dimension))
+    db.session.flush()
+    screw = Material.query.filter_by(code='M0001').first()
+    box = Unit.query.filter_by(code='BOX').first()
+    pcs = Unit.query.filter_by(code='PCS').first()
+    # 示例换算只在物料基本单位确为“个”时写入，避免历史库（原来单位=盒）产生错误换算
+    if screw is not None and box is not None and pcs is not None and screw.unit == pcs.name:
+        if UnitConversion.query.filter_by(material_id=screw.id, unit_id=box.id).first() is None:
+            db.session.add(UnitConversion(material_id=screw.id, unit_id=box.id, factor=100,
+                                          remark='示例：1盒=100个'))
+
     # 仓库
     warehouse = Warehouse.query.filter_by(name='原材料仓').first()
     if warehouse is None:
@@ -176,6 +199,24 @@ def seed_sample_data() -> None:
     if warehouse2 is None:
         warehouse2 = Warehouse(name='成品仓', location='2号厂房')
         db.session.add(warehouse2)
+
+    # 客户与供应商（幂等：按编码查）
+    sample_customers = [
+        ('CUS001', '圣诞礼品贸易公司', '陈经理', '13800000001', '上海市浦东新区'),
+        ('CUS002', '华东百货批发', '李主管', '13800000002', '江苏省苏州市'),
+    ]
+    for code, name, contact, phone, address in sample_customers:
+        if Customer.query.filter_by(code=code).first() is None:
+            db.session.add(Customer(code=code, name=name, contact=contact,
+                                    phone=phone, address=address))
+    sample_suppliers = [
+        ('SUP001', '宏远五金厂', '王经理', '13900000001', '浙江省宁波市'),
+        ('SUP002', '恒信包装材料', '赵主管', '13900000002', '广东省东莞市'),
+    ]
+    for code, name, contact, phone, address in sample_suppliers:
+        if Supplier.query.filter_by(code=code).first() is None:
+            db.session.add(Supplier(code=code, name=name, contact=contact,
+                                    phone=phone, address=address))
 
     # 工序档案（主数据：工厂标准工序，工单只能引用）
     sample_processes = [
@@ -189,6 +230,38 @@ def seed_sample_data() -> None:
         if Process.query.filter_by(code=code).first() is None:
             db.session.add(Process(code=code, name=name, standard_hours=std_hours,
                                    sort_order=sort))
+
+    # 产品档案与 BOM（主数据：工单/工艺路线只引用，避免手输同物多名）
+    product = Product.query.filter_by(code='PRD001').first()
+    if product is None:
+        product = Product(code='PRD001', name='圣诞树', spec='12cm / 标准款', unit='个',
+                          remark='示例产品，配套 RT01 工艺路线')
+        db.session.add(product)
+        db.session.flush()
+        for mat_code, qty in (('M0001', 0.2), ('M0002', 2), ('M0003', 1)):
+            mat = Material.query.filter_by(code=mat_code).first()
+            if mat is not None:
+                db.session.add(BomItem(product_id=product.id, material_id=mat.id,
+                                       quantity=qty, unit=mat.unit))
+
+    # 示例工艺路线（幂等：按编码查）：圣诞树 = 下料→机加工→组装→质检→包装
+    route = ProcessRoute.query.filter_by(code='RT01').first()
+    if route is None:
+        route = ProcessRoute(code='RT01', name='圣诞树工艺路线',
+                             product_id=product.id if product else None,
+                             product_name=product.name if product else '圣诞树',
+                             remark='示例工序组，新建工单时可直接选用')
+        db.session.add(route)
+        db.session.flush()
+        for seq, code in enumerate(('OP01', 'OP02', 'OP03', 'OP04', 'OP05'), 1):
+            process = Process.query.filter_by(code=code).first()
+            if process is not None:
+                db.session.add(ProcessRouteItem(route_id=route.id,
+                                                process_id=process.id, seq=seq))
+    elif product is not None and route.product_id is None:
+        # 历史路线补关联，保证工单选产品后能推荐到这条路线
+        route.product_id = product.id
+        route.product_name = product.name
 
     # 示例工单（幂等：按单号查）
     if not WorkOrder.query.filter_by(order_no='WO20250101001').first():

@@ -32,7 +32,11 @@ def _reason(code='DRQA01', name='尺寸超差', category='来料'):
 
 
 def _csrf_detail(client, order):
-    return get_csrf(client, '/production/orders/%d' % order.id)
+    # 终态工单详情页已无添加工序表单，回退到新建工单页取同会话通用 token
+    resp = client.get('/production/orders/%d' % order.id)
+    if b'name="csrf_token"' in resp.data:
+        return get_csrf(client, '/production/orders/%d' % order.id)
+    return get_csrf(client, '/production/orders/new')
 
 
 # ---------------- 状态守卫 ----------------
@@ -243,3 +247,45 @@ def test_disabled_reason_not_selectable_and_permission_guarded(client):
                        data={'csrf_token': token}).status_code == 403
     assert client.post('/production/orders/%d/quality' % order.id,
                        data={'csrf_token': token}).status_code == 403
+
+
+def test_quality_allows_zero_defect_and_zero_good(client):
+    """0 是合法数量：全良品(不良=0)与全不良(良品=0)都要能上报，原因可空/必填按数量判定。"""
+    order = _order('in_progress')
+    reason = _reason('DRZERO01', '整批不良')
+    login(client, 'producer1', '123456')
+    token = _csrf_detail(client, order)
+
+    # 良率 100%：不良数量=0，不良原因留空
+    resp = client.post('/production/orders/%d/quality' % order.id, data={
+        'csrf_token': token, 'output_qty': '10', 'good_qty': '10', 'defect_qty': '0',
+        'defect_reason_id': '0', 'quality_remark': '',
+    }, follow_redirects=True)
+    assert resp.status_code == 200
+    assert '校验失败'.encode() not in resp.data
+    db.session.expire_all()
+    saved = db.session.get(WorkOrder, order.id)
+    assert (saved.output_qty, saved.good_qty, saved.defect_qty) == (10, 10, 0)
+    assert saved.yield_rate == 100.0 and saved.defect_rate == 0.0
+    assert saved.defect_reason_id is None
+
+    # 不良率 100%：合格数量=0，此时必须选择不良原因
+    resp = client.post('/production/orders/%d/quality' % order.id, data={
+        'csrf_token': token, 'output_qty': '10', 'good_qty': '0', 'defect_qty': '10',
+        'defect_reason_id': str(reason.id), 'quality_remark': '整批异常',
+    }, follow_redirects=True)
+    assert resp.status_code == 200
+    assert '校验失败'.encode() not in resp.data
+    db.session.expire_all()
+    saved = db.session.get(WorkOrder, order.id)
+    assert (saved.output_qty, saved.good_qty, saved.defect_qty) == (10, 0, 10)
+    assert saved.yield_rate == 0.0 and saved.defect_rate == 100.0
+    assert saved.defect_reason_id == reason.id
+
+    # 真正没填的数量仍要被拒绝，且提示具体字段
+    resp = client.post('/production/orders/%d/quality' % order.id, data={
+        'csrf_token': token, 'output_qty': '', 'good_qty': '10', 'defect_qty': '0',
+        'defect_reason_id': '0', 'quality_remark': '',
+    }, follow_redirects=True)
+    assert '校验失败'.encode() in resp.data
+    assert '请输入成品数量'.encode() in resp.data

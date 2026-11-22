@@ -10,9 +10,12 @@ from app.models.file import FactoryFile, FileCategory
 from app.models.leave import LeaveRequest
 from app.models.material import Material, MaterialCategory
 from app.models.org import Department
-from app.models.production import DefectReason, Process, WorkOrder, WorkOrderStep
+from app.models.partner import Customer, Supplier
+from app.models.production import (BomItem, DefectReason, Process, Product, ProcessRoute,
+                                   ProcessRouteItem, WorkOrder, WorkOrderStep)
 from app.models.rbac import Role
 from app.models.system import OperationLog
+from app.models.unit import Unit, UnitConversion
 from app.models.user import User
 from app.models.warehouse import StockDocument, Warehouse
 from app.services.inventory_service import InsufficientStockError, restore_stock_document
@@ -48,6 +51,11 @@ def _describe(obj, type_key: str) -> str:
         return '%s→%s：%s' % (obj.sender_id, obj.receiver_id, (obj.content or '')[:24])
     if type_key == 'process':
         return '%s %s' % (obj.code, obj.name)
+    if type_key == 'product':
+        return '%s %s%s' % (obj.code, obj.name, ('（%s）' % obj.spec) if obj.spec else '')
+    if type_key in ('customer', 'supplier'):
+        return '%s %s%s' % (obj.code, obj.name,
+                            ('（%s）' % obj.contact) if obj.contact else '')
     return getattr(obj, 'name', '') or getattr(obj, 'code', '') or '#%s' % obj.id
 
 
@@ -56,12 +64,18 @@ RECYCLE_REGISTRY = {
     'user': (User, '员工', 'hr', 'employee', ('username', 'employee_no')),
     'department': (Department, '部门', 'hr', 'department', ()),
     'role': (Role, '角色', 'rbac', 'role', ('code',)),
+    'product': (Product, '产品档案', 'production', 'product', ('code', 'name')),
+    'customer': (Customer, '客户档案', 'production', 'customer', ('code', 'name')),
+    'supplier': (Supplier, '供应商档案', 'warehouse', 'supplier', ('code', 'name')),
     'process': (Process, '工序档案', 'production', 'process', ('code', 'name')),
+    'process_route': (ProcessRoute, '工艺路线', 'production', 'process_route', ('code', 'name')),
     'defect_reason': (DefectReason, '不良原因', 'production', 'defect_reason', ('code', 'name')),
     'work_order': (WorkOrder, '生产工单', 'production', 'work_order', ('order_no',)),
     'work_order_step': (WorkOrderStep, '工单工序', 'production', 'work_order_step', ()),
     'material_category': (MaterialCategory, '物料分类', 'material', 'material_category', ()),
     'material': (Material, '物料', 'material', 'material', ('code',)),
+    'unit': (Unit, '计量单位', 'material', 'unit', ('code', 'name')),
+    'unit_conversion': (UnitConversion, '单位换算', 'material', 'unit_conversion', ()),
     'warehouse': (Warehouse, '仓库', 'warehouse', 'warehouse', ('name',)),
     'stock_document': (StockDocument, '出入库单', 'warehouse', 'stock_document', ('doc_no',)),
     'file_category': (FileCategory, '文件分类', 'files', 'file_category', ()),
@@ -102,7 +116,8 @@ def operation_logs():
         .paginate(page=page, per_page=20, error_out=False)
 
     modules = [row[0] for row in db.session.query(OperationLog.module)
-               .distinct().order_by(OperationLog.module).all() if row[0]]
+               .distinct().all() if row[0]]
+    modules.sort(key=lambda m: OperationLog.MODULE_LABELS.get(m, m))
     operators = User.query.filter(User.id.in_(
         db.session.query(OperationLog.operator_id).filter(OperationLog.operator_id.isnot(None))
     )).order_by(User.employee_no).all()
@@ -113,6 +128,7 @@ def operation_logs():
         module=module, action=action, operator_id=operator_id,
         date_from=date_from, date_to=date_to,
         modules=modules, operators=operators,
+        module_labels=OperationLog.MODULE_LABELS,
         action_labels=OperationLog.ACTION_LABELS,
     )
 
@@ -206,6 +222,20 @@ def recycle_restore(type_key, obj_id):
     desc = _describe(obj, type_key)
     restore_record(obj, module=module, target_type=target_type,
                    summary='从回收站恢复%s：%s' % (label, desc))
+    if model is ProcessRoute:
+        # 明细随路线一起软删，恢复时同步恢复（明细编辑本身是物理替换）
+        for item in (ProcessRouteItem.query
+                     .execution_options(include_deleted=True)
+                     .filter_by(route_id=obj.id).all()):
+            item.is_deleted = False
+    elif model is Product:
+        # BOM 明细随产品一起软删，恢复时同步恢复
+        for item in (BomItem.query
+                     .execution_options(include_deleted=True)
+                     .filter_by(product_id=obj.id).all()):
+            item.is_deleted = False
+    if model in (ProcessRoute, Product):
+        db.session.commit()
     flash('%s「%s」已恢复' % (label, desc), 'success')
     return redirect(url_for('system.recycle', type=type_key))
 
@@ -234,7 +264,15 @@ def recycle_purge(type_key, obj_id):
         return redirect(url_for('system.recycle', type=type_key))
 
     # 活引用一律拒绝（含出入库单据等无 is_deleted 的审计/业务表）
-    refs = find_references(obj, extra_ignore=USER_PURGE_TABLES if model is User else ())
+    if model is User:
+        extra_ignore = USER_PURGE_TABLES
+    elif model is ProcessRoute:
+        extra_ignore = ('process_route_items',)
+    elif model is Product:
+        extra_ignore = ('bom_items',)
+    else:
+        extra_ignore = ()
+    refs = find_references(obj, extra_ignore=extra_ignore)
     if refs:
         flash('无法彻底删除：%s「%s」仍被 %s 引用，请先处理关联数据' % (
             label, _describe(obj, type_key), format_references(refs)), 'danger')

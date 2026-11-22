@@ -45,6 +45,10 @@ instance/
 *.sqlite3
 *.db
 
+# 数据库备份（含业务数据，禁止入版本库）
+backups/
+*.sql
+
 # OS generated files
 .DS_Store
 Thumbs.db

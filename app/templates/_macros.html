@@ -1,5 +1,5 @@
 {% macro render_pagination(pagination, endpoint) %}
-    {# 分页宏：沿用当前请求的 query 参数（自动保留筛选条件），仅替换 page #}
+    {# 分页宏：沿用当前请求的 query 参数（自动保留查询条件），仅替换 page #}
     {% if pagination.pages > 1 %}
         {% set args = request.args.to_dict() %}
         <nav aria-label="分页">

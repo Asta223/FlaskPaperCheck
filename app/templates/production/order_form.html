@@ -7,10 +7,43 @@
         <form method="POST" class="row g-3">
             {{ form.hidden_tag() }}
             <div class="col-md-6">
+                {{ form.product_id.label(class="form-label") }}
+                {{ form.product_id(class="form-select") }}
+                <div class="form-text">
+                    <i class="bi bi-info-circle"></i> 选择产品后自动带出名称与规格，并查询对应工艺路线；产品名称无需手填。
+                </div>
+            </div>
+            <div class="col-md-6">
                 {{ form.product_name.label(class="form-label") }}
                 {{ form.product_name(class="form-control") }}
+                <div class="form-text" id="productNameHint">
+                    <i class="bi bi-info-circle"></i> 产品尚未建档时才需手工填写；建档后请选择产品档案以免同物多名。
+                </div>
                 {% for err in form.product_name.errors %}<div class="text-danger small">{{ err }}</div>{% endfor %}
             </div>
+            <div class="col-md-6">
+                {{ form.customer_id.label(class="form-label") }}
+                {{ form.customer_id(class="form-select") }}
+                <div class="form-text">
+                    <i class="bi bi-info-circle"></i> 可选：选择下单客户后自动带出名称；留空表示暂无客户档案。
+                </div>
+            </div>
+            <div class="col-md-6">
+                {{ form.customer_name.label(class="form-label") }}
+                {{ form.customer_name(class="form-control") }}
+                <div class="form-text" id="customerNameHint">
+                    <i class="bi bi-info-circle"></i> 客户尚未建档时才需手工填写；建档后请选择客户档案。
+                </div>
+            </div>
+            {% if show_route %}
+            <div class="col-md-6">
+                {{ form.route_id.label(class="form-label") }}
+                {{ form.route_id(class="form-select") }}
+                <div class="form-text">
+                    <i class="bi bi-info-circle"></i> 选择后按路线顺序一次性添加全部工序；留空则创建后逐个添加。
+                </div>
+            </div>
+            {% endif %}
             <div class="col-md-3">
                 {{ form.quantity.label(class="form-label") }}
                 {{ form.quantity(class="form-control", type="number", min=1) }}
@@ -63,4 +96,64 @@
         </form>
     </div>
 </div>
+<script>
+(function () {
+    const productSel = document.getElementById('product_id');
+    const nameInput = document.getElementById('product_name');
+    const nameHint = document.getElementById('productNameHint');
+    const routeSel = document.getElementById('route_id');
+    const customerSel = document.getElementById('customer_id');
+    const customerInput = document.getElementById('customer_name');
+    const customerHint = document.getElementById('customerNameHint');
+    if (!productSel) return;
+    const routeMap = {{ route_product_map|default({})|tojson }};
+    // 后端传入的 id→精确名称映射，避免从下拉文本正则抠名字（名称含空格/括号会解析错）
+    const productNames = {{ form.product_name_map|default({})|tojson }};
+    const customerNames = {{ form.customer_name_map|default({})|tojson }};
+
+    function applyProduct() {
+        const pid = Number(productSel.value || 0);
+        if (nameInput) {
+            if (pid && productNames[pid]) {
+                nameInput.value = productNames[pid];
+                nameInput.readOnly = true;
+                nameInput.classList.add('bg-light');
+                if (nameHint) nameHint.innerHTML = '<i class="bi bi-check-circle"></i> 名称由产品档案自动带出，无需填写；如需自定义请先清除产品选择';
+            } else {
+                nameInput.readOnly = false;
+                nameInput.classList.remove('bg-light');
+                if (nameHint) nameHint.innerHTML = '<i class="bi bi-info-circle"></i> 产品尚未建档时才需手工填写；建档后请选择产品档案以免同物多名';
+            }
+        }
+        if (routeSel) {
+            Array.from(routeSel.options).forEach(function (opt) {
+                const rid = Number(opt.value);
+                const match = !rid || !pid || routeMap[rid] === pid;
+                opt.disabled = !match;
+                opt.style.display = match ? '' : 'none';
+            });
+            const current = routeSel.options[routeSel.selectedIndex];
+            if (current && current.disabled) routeSel.value = '0';
+        }
+    }
+    function applyCustomer() {
+        if (!customerSel || !customerInput) return;
+        const cid = Number(customerSel.value || 0);
+        if (cid && customerNames[cid]) {
+            customerInput.value = customerNames[cid];
+            customerInput.readOnly = true;
+            customerInput.classList.add('bg-light');
+            if (customerHint) customerHint.innerHTML = '<i class="bi bi-check-circle"></i> 名称由客户档案自动带出，无需填写';
+        } else {
+            customerInput.readOnly = false;
+            customerInput.classList.remove('bg-light');
+            if (customerHint) customerHint.innerHTML = '<i class="bi bi-info-circle"></i> 客户尚未建档时才需手工填写；建档后请选择客户档案';
+        }
+    }
+    productSel.addEventListener('change', applyProduct);
+    if (customerSel) customerSel.addEventListener('change', applyCustomer);
+    applyProduct();
+    applyCustomer();
+})();
+</script>
 {% endblock %}

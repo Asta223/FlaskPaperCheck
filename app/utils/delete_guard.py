@@ -22,9 +22,12 @@ USER_PURGE_TABLES = ('notifications', 'chat_messages', 'conversation_reads')
 TABLE_LABELS = {
     'users': '员工', 'departments': '部门', 'roles': '角色', 'permissions': '权限点',
     'attendance_records': '考勤记录', 'leave_requests': '请假申请',
-    'work_orders': '生产工单', 'work_order_steps': '工单工序', 'processes': '工序档案',
+    'work_orders': '生产工单', 'work_order_steps': '工单工序',     'products': '产品档案', 'customers': '客户档案', 'suppliers': '供应商档案',
+    'bom_items': 'BOM用料明细', 'processes': '工序档案',
+    'process_routes': '工艺路线', 'process_route_items': '工艺路线明细',
     'defect_reasons': '不良原因',
     'materials': '物料', 'material_categories': '物料分类',
+    'units': '计量单位', 'unit_conversions': '单位换算',
     'warehouses': '仓库', 'inventories': '库存记录', 'stock_documents': '出入库单据',
     'stock_ledgers': '库存流水', 'stock_warning_states': '库存预警状态',
     'factory_files': '文件', 'file_categories': '文件分类',

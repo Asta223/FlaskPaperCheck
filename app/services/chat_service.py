@@ -22,17 +22,41 @@ def _get_site(user_id: int, peer_id: int) -> int:
     return row.last_read_message_id if row else 0
 
 
-def _set_site(user_id: int, peer_id: int, last_id: int) -> None:
-    """ upsert 已读位点（查-改-增，兼容 SQLite/MySQL）。"""
+def _conversation_row(user_id: int, peer_id: int, create: bool = False):
+    """读取（可选新建）当前用户对某会话的位点行。"""
     row = (ConversationRead.query
            .filter_by(user_id=user_id, peer_id=peer_id).first())
-    if row is None:
+    if row is None and create:
         row = ConversationRead(user_id=user_id, peer_id=peer_id,
-                               last_read_message_id=last_id, updated_at=now())
+                               last_read_message_id=0, updated_at=now())
         db.session.add(row)
-    elif row.last_read_message_id < last_id:
+    return row
+
+
+def _set_site(user_id: int, peer_id: int, last_id: int) -> None:
+    """ upsert 已读位点（查-改-增，兼容 SQLite/MySQL）。"""
+    row = _conversation_row(user_id, peer_id, create=True)
+    if row.last_read_message_id < last_id:
         row.last_read_message_id = last_id
         row.updated_at = now()
+
+
+def hide_conversation(user_id: int, peer_id: int) -> None:
+    """从最近会话移除：只隐藏本端入口，聊天记录和其他人会话不受影响。"""
+    row = _conversation_row(user_id, peer_id, create=True)
+    if not row.is_hidden:
+        row.is_hidden = True
+        row.updated_at = now()
+        db.session.commit()
+
+
+def unhide_conversation(user_id: int, peer_id: int) -> None:
+    """重新打开会话时恢复显示（收到新消息后未读会话也会自动绕过隐藏标记）。"""
+    row = _conversation_row(user_id, peer_id)
+    if row is not None and row.is_hidden:
+        row.is_hidden = False
+        row.updated_at = now()
+        db.session.commit()
 
 
 def unread_by_peer(user_id: int) -> dict:
@@ -115,17 +139,25 @@ def conversation_list(user_id: int) -> list:
             peers[peer_id] = msg
 
     unread_map = unread_by_peer(user_id)
+    hidden = {
+        r.peer_id: r.is_hidden
+        for r in ConversationRead.query.filter_by(user_id=user_id).all()
+    }
 
     result = []
     for peer_id, msg in peers.items():
         peer = db.session.get(User, peer_id)
         if peer is None:
             continue
+        unread = unread_map.get(peer_id, 0)
+        # 已移除的会话仅在无未读时隐藏；对方再发消息时自动重新出现
+        if hidden.get(peer_id) and unread == 0:
+            continue
         result.append({
             'peer': peer,
             'last_message': (msg.content or '')[:50],
             'last_time': msg.created_at,
-            'unread': unread_map.get(peer_id, 0),
+            'unread': unread,
         })
     return result
 

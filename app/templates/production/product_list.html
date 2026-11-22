@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+{% block title %}产品档案 - 工厂管理系统{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h4 class="mb-0"><i class="bi bi-box"></i> 产品档案</h4>
+    <span class="text-muted small">维护产品主数据与标准用料（BOM），工单和工艺路线直接引用，减少手输误差</span>
+</div>
+
+<div class="row">
+    <div class="col-lg-5">
+        <div class="card shadow-sm mb-3">
+            <div class="card-header bg-white">
+                <i class="bi bi-plus-lg"></i> {{ '编辑产品' if product else '新增产品' }}
+            </div>
+            <div class="card-body">
+                {% if 'production.product.manage' in current_user|perm_codes %}
+                    <form method="POST" class="row g-3"
+                          action="{{ url_for('production.product_edit', product_id=product.id) if product else url_for('production.product_new') }}">
+                        {{ form.hidden_tag() }}
+                        <div class="col-md-6">
+                            {{ form.code.label(class="form-label") }}
+                            {{ form.code(class="form-control", placeholder="如 PRD001") }}
+                            {% for err in form.code.errors %}<div class="text-danger small">{{ err }}</div>{% endfor %}
+                        </div>
+                        <div class="col-md-6">
+                            {{ form.name.label(class="form-label") }}
+                            {{ form.name(class="form-control", placeholder="如 圣诞树") }}
+                            {% for err in form.name.errors %}<div class="text-danger small">{{ err }}</div>{% endfor %}
+                        </div>
+                        <div class="col-md-8">
+                            {{ form.spec.label(class="form-label") }}
+                            {{ form.spec(class="form-control", placeholder="如 12cm / 标准款") }}
+                        </div>
+                        <div class="col-md-4">
+                            {{ form.unit.label(class="form-label") }}
+                            {{ form.unit(class="form-control", placeholder="个") }}
+                            {% for err in form.unit.errors %}<div class="text-danger small">{{ err }}</div>{% endfor %}
+                        </div>
+                        <div class="col-12">
+                            {{ form.remark.label(class="form-label") }}
+                            {{ form.remark(class="form-control", rows=2) }}
+                        </div>
+                        <div class="col-12">
+                            <hr class="my-1">
+                            <div class="form-text mb-2">
+                                <i class="bi bi-info-circle"></i> BOM 只维护“单件标准用量”，单位自动取物料档案快照。
+                                第一版仅作参考清单，不会自动领料或扣库存。
+                            </div>
+                            <div class="table-responsive" style="max-height:34vh;overflow-y:auto;">
+                                <table class="table table-sm table-hover mb-0 align-middle">
+                                    <thead class="table-light">
+                                    <tr><th style="width:44px;">选择</th><th>物料</th><th style="width:110px;">单件用量</th></tr>
+                                    </thead>
+                                    <tbody>
+                                    {% for m in materials %}
+                                        {% set picked = selected.get(m.id) %}
+                                        <tr>
+                                            <td>
+                                                <input class="form-check-input" type="checkbox" name="material_ids"
+                                                       value="{{ m.id }}" id="mat_{{ m.id }}"
+                                                       {% if picked %}checked{% endif %}>
+                                            </td>
+                                            <td>
+                                                <label class="form-check-label small" for="mat_{{ m.id }}">
+                                                    {{ m.code }} {{ m.name }}
+                                                    {% if m.spec %}<span class="text-muted">（{{ m.spec }}）</span>{% endif %}
+                                                </label>
+                                            </td>
+                                            <td>
+                                                <div class="input-group input-group-sm">
+                                                    <input class="form-control" type="number" min="0.01" step="0.01"
+                                                           name="qty_{{ m.id }}"
+                                                           value="{{ picked[0] if picked else 1 }}">
+                                                    <span class="input-group-text">{{ m.unit }}</span>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    {% else %}
+                                        <tr><td colspan="3" class="text-center text-muted py-3">暂无启用物料，请先到物料档案维护</td></tr>
+                                    {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div class="col-12">
+                            {{ form.submit(class="btn btn-primary") }}
+                            {% if product %}
+                                <a class="btn btn-outline-secondary" href="{{ url_for('production.product_list') }}">取消编辑</a>
+                            {% endif %}
+                        </div>
+                    </form>
+                {% else %}
+                    <p class="text-muted mb-0">你没有产品档案维护权限，只能查看列表。</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-7">
+        <div class="card shadow-sm">
+            <div class="card-header bg-white"><i class="bi bi-table"></i> 已维护产品（{{ products|length }}）</div>
+            <div class="card-body p-0">
+                <table class="table table-hover mb-0 align-middle">
+                    <thead class="table-light">
+                    <tr><th>编号</th><th>产品名称</th><th>规格</th><th>单位</th><th>BOM 用料</th><th>状态</th><th class="text-end">操作</th></tr>
+                    </thead>
+                    <tbody>
+                    {% for p in products %}
+                        <tr class="{% if not p.is_active %}text-muted{% endif %}">
+                            <td>{{ p.code }}</td>
+                            <td class="fw-bold">{{ p.name }}</td>
+                            <td>{{ p.spec or '-' }}</td>
+                            <td>{{ p.unit }}</td>
+                            <td>
+                                {% for item in p.bom_items %}
+                                    <span class="badge bg-light text-dark border">
+                                        {{ item.material.name if item.material else '#' ~ item.material_id }}
+                                        {{ '%.2f'|format(item.quantity) }}{{ item.unit }}
+                                    </span>
+                                {% else %}
+                                    <span class="text-muted small">未维护</span>
+                                {% endfor %}
+                            </td>
+                            <td>
+                                {% if p.is_active %}<span class="badge bg-success">启用</span>
+                                {% else %}<span class="badge bg-secondary">停用</span>{% endif %}
+                            </td>
+                            <td class="text-end">
+                                {% if 'production.product.manage' in current_user|perm_codes %}
+                                    <a class="btn btn-sm btn-outline-primary"
+                                       href="{{ url_for('production.product_list', edit_id=p.id) }}">编辑</a>
+                                    <form class="d-inline" method="POST"
+                                          action="{{ url_for('production.product_toggle', product_id=p.id) }}">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                        <button class="btn btn-sm btn-outline-warning" type="submit">
+                                            {{ '启用' if not p.is_active else '停用' }}
+                                        </button>
+                                    </form>
+                                    <form class="d-inline" method="POST"
+                                          action="{{ url_for('production.product_delete', product_id=p.id) }}"
+                                          onsubmit="return confirm('删除产品「{{ p.name }}」？BOM 会一并隐藏，可在回收站恢复。');">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                        <button class="btn btn-sm btn-outline-danger" type="submit" title="删除（可在回收站恢复）">
+                                            <i class="bi bi-trash3"></i>
+                                        </button>
+                                    </form>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% else %}
+                        <tr><td colspan="7" class="text-center text-muted py-3">暂无产品，请在左侧新增</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -79,6 +79,18 @@ def test_operation_log_page_superadmin(client):
     assert resp2.status_code == 200
 
 
+def test_operation_log_module_shown_in_chinese(client, app_ctx):
+    """模块筛选和列表展示中文名，筛选值仍保留英文 code。"""
+    log = OperationLog(module='qa_mod', action='create')
+    assert log.module_label == 'qa_mod'  # 未知模块原样显示
+    assert OperationLog(module='auth', action='login').module_label == '登录认证'
+
+    login(client, 'admin', 'admin123')
+    body = client.get('/system/logs?module=auth').data.decode('utf-8')
+    assert '<option value="auth" selected>登录认证</option>' in body
+    assert '<code>auth</code>' not in body
+
+
 def test_operation_log_page_forbidden_for_staff(client):
     """staff 访问操作日志 → 403。"""
     login(client, 'staff1', '123456')

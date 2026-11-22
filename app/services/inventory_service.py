@@ -133,7 +133,8 @@ def restore_stock_document(doc: StockDocument, operator_id: int) -> int:
 def apply_stock_document(doc_type: str, warehouse_id: int, material_id: int, quantity: int,
                          handler_id: int, created_by: int,
                          related_order_id=None, remark: str = '',
-                         work_order_log: dict = None) -> StockDocument:
+                         work_order_log: dict = None, supplier_id=None,
+                         unit_id=None, input_quantity=None) -> StockDocument:
     """提交出入库单并同事务更新库存 + 追加流水。
 
     - 入库：无库存记录则新建，数量累加；
@@ -146,12 +147,6 @@ def apply_stock_document(doc_type: str, warehouse_id: int, material_id: int, qua
     """
     if doc_type not in ('in', 'out'):
         raise InventoryServiceError('单据类型非法')
-    try:
-        qty = int(quantity)
-    except (TypeError, ValueError):
-        raise InventoryServiceError('数量必须为正整数')
-    if qty <= 0:
-        raise InventoryServiceError('数量必须大于0')
 
     warehouse = Warehouse.query.filter_by(id=warehouse_id, is_active=True).first()
     if warehouse is None:
@@ -159,6 +154,21 @@ def apply_stock_document(doc_type: str, warehouse_id: int, material_id: int, qua
     material = Material.query.filter_by(id=material_id, is_active=True).first()
     if material is None:
         raise InventoryServiceError('物料不存在或已停用')
+
+    # 单位换算：服务端按物料换算关系折算，不信任前端传来的折算结果
+    conv = None
+    unit = None
+    if unit_id:
+        from app.services.unit_service import resolve_base_quantity
+        qty, conv, unit = resolve_base_quantity(
+            material, unit_id, input_quantity if input_quantity is not None else quantity)
+    else:
+        try:
+            qty = int(quantity)
+        except (TypeError, ValueError):
+            raise InventoryServiceError('数量必须为正整数')
+        if qty <= 0:
+            raise InventoryServiceError('数量必须大于0')
 
     try:
         # 行锁（MySQL）；SQLite 忽略 FOR UPDATE，由单写者保证串行
@@ -189,6 +199,11 @@ def apply_stock_document(doc_type: str, warehouse_id: int, material_id: int, qua
             quantity=qty,
             handler_id=handler_id,
             related_order_id=related_order_id or None,  # 规范化 0/空为 None，避免悬空外键
+            supplier_id=(supplier_id or None) if doc_type == 'in' else None,
+            unit_id=unit.id if unit else None,
+            unit_name=unit.name if unit else '',
+            factor=conv.factor if conv else None,
+            input_quantity=(input_quantity if input_quantity is not None else qty),
             remark=remark or '',
             created_by=created_by,
         )
@@ -202,7 +217,10 @@ def apply_stock_document(doc_type: str, warehouse_id: int, material_id: int, qua
             target_id=doc.id,
             summary='%s单据 %s：%s#%s ×%s%s' % (
                 '入库' if doc_type == 'in' else '出库', doc.doc_no,
-                warehouse.name, material.name, qty,
+                warehouse.name, material.name,
+                ('%s%s（折合%s %s）' % (
+                    doc.input_quantity, unit.name, qty, material.unit)
+                 if unit else '%s %s' % (qty, material.unit)),
                 ('（关联工单#%s）' % doc.related_order_id) if doc.related_order_id else ''),
             operator_id=created_by,
         )

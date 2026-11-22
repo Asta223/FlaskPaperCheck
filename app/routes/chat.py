@@ -21,6 +21,8 @@ def index():
     peer = db.session.get(User, peer_id) if peer_id else None
     if peer is not None and peer.id == current_user.id:
         peer = None
+    if peer is not None:
+        chat_service.unhide_conversation(current_user.id, peer.id)
 
     messages = []
     earliest_id = 0
@@ -33,15 +35,24 @@ def index():
         has_more = len(all_count) > len(messages)
         chat_service.mark_read(current_user.id, peer.id)  # 打开即已读
 
-    colleagues = (User.query.filter(User.id != current_user.id, User.is_active.is_(True))
-                  .order_by(User.name).all())
+    q = request.args.get('q', '').strip()
+    all_colleagues = (User.query.filter(User.id != current_user.id, User.is_active.is_(True))
+                      .order_by(User.name).all())
+    if q:
+        needle = q.lower()
+        colleagues = [u for u in all_colleagues
+                      if needle in (u.name or '').lower()
+                      or needle in (u.employee_no or '').lower()
+                      or needle in (u.username or '').lower()]
+    else:
+        colleagues = all_colleagues
     form = ChatSendForm()
     if peer is not None:
         form.receiver_id.data = peer.id
     last_id = messages[-1].id if messages else 0
     return render_template('chat/index.html', conversations=conversations, peer=peer,
                            messages=messages, colleagues=colleagues, form=form,
-                           last_id=last_id, earliest_id=earliest_id, has_more=has_more)
+                           last_id=last_id, earliest_id=earliest_id, has_more=has_more, q=q)
 
 
 @bp.route('/send', methods=['POST'])
@@ -65,6 +76,17 @@ def send():
     else:
         flash('消息不能为空', 'danger')
     return redirect(url_for('chat.index'))
+
+
+@bp.route('/conversations/<int:peer_id>/delete', methods=['POST'])
+@login_required
+def conversation_delete(peer_id):
+    """从最近会话移除：仅隐藏本端入口，消息保留；对方再发消息会自动重现。"""
+    if peer_id == current_user.id:
+        abort(400)
+    chat_service.hide_conversation(current_user.id, peer_id)
+    flash('已从最近会话移除，聊天记录仍保留；对方再发消息会重新显示', 'success')
+    return redirect(url_for('chat.index', q=request.args.get('q', '')))
 
 
 @bp.route('/messages/<int:msg_id>/delete', methods=['POST'])

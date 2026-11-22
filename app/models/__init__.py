@@ -3,8 +3,11 @@ from app.models.user import User, user_roles
 from app.models.rbac import Permission, Role, role_permissions
 from app.models.org import Department
 from app.models.attendance import AttendanceRecord
-from app.models.production import DefectReason, Process, WorkOrder, WorkOrderStep
+from app.models.production import (BomItem, DefectReason, Process, Product, ProcessRoute,
+                                   ProcessRouteItem, WorkOrder, WorkOrderStep)
 from app.models.material import Material, MaterialCategory
+from app.models.unit import Unit, UnitConversion
+from app.models.partner import Customer, Supplier
 from app.models.warehouse import Inventory, StockDocument, Warehouse
 from app.models.file import FactoryFile, FileCategory, file_role_visibility, \
     file_department_visibility
@@ -19,8 +22,11 @@ __all__ = [
     'Role', 'Permission', 'role_permissions',
     'Department',
     'AttendanceRecord',
-    'DefectReason', 'Process', 'WorkOrder', 'WorkOrderStep',
+    'BomItem', 'DefectReason', 'Process', 'Product', 'ProcessRoute', 'ProcessRouteItem',
+    'WorkOrder', 'WorkOrderStep',
     'MaterialCategory', 'Material',
+    'Unit', 'UnitConversion',
+    'Customer', 'Supplier',
     'Warehouse', 'Inventory', 'StockDocument',
     'FileCategory', 'FactoryFile', 'file_role_visibility', 'file_department_visibility',
     'ChatMessage', 'ConversationRead',

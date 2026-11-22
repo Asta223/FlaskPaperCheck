@@ -26,9 +26,19 @@
                 {{ form.quantity(class="form-control", type="number", min=1) }}
                 {% for err in form.quantity.errors %}<div class="text-danger small">{{ err }}</div>{% endfor %}
             </div>
+            <div class="col-md-3">
+                {{ form.unit_id.label(class="form-label") }}
+                {{ form.unit_id(class="form-select", id="docUnit") }}
+                <div class="form-text" id="unitHint">默认按物料基本单位收发</div>
+            </div>
             <div class="col-md-4" id="relatedOrderGroup">
                 {{ form.related_order_id.label(class="form-label") }}
                 {{ form.related_order_id(class="form-select") }}
+            </div>
+            <div class="col-md-4" id="supplierGroup">
+                {{ form.supplier_id.label(class="form-label") }}
+                {{ form.supplier_id(class="form-select") }}
+                <div class="form-text">入库时可选送货供应商，便于按供应商追溯来料。</div>
             </div>
             <div class="col-md-8">
                 {{ form.remark.label(class="form-label") }}
@@ -43,18 +53,73 @@
     </div>
 </div>
 <script>
-    // P1-08：仅出库单显示"关联工单"
-    function toggleRelatedOrder() {
+    // 出库显示"关联工单"，入库显示"供应商"
+    function toggleByDocType() {
         var t = document.getElementById('doc_type');
-        var grp = document.getElementById('relatedOrderGroup');
-        var sel = document.getElementById('related_order_id');
-        if (!t || !grp) return;
-        grp.style.display = (t.value === 'out') ? '' : 'none';
-        if (t.value !== 'out' && sel) { sel.value = '0'; }
+        if (!t) return;
+        var isIn = t.value === 'in';
+        var orderGrp = document.getElementById('relatedOrderGroup');
+        var orderSel = document.getElementById('related_order_id');
+        var supGrp = document.getElementById('supplierGroup');
+        var supSel = document.getElementById('supplier_id');
+        if (orderGrp) orderGrp.style.display = isIn ? 'none' : '';
+        if (!isIn && orderSel) orderSel.value = '0';
+        if (supGrp) supGrp.style.display = isIn ? '' : 'none';
+        if (!isIn && supSel) supSel.value = '0';
+    }
+    var baseUnit = '';
+    function updateUnitHint() {
+        var sel = document.getElementById('docUnit');
+        var hint = document.getElementById('unitHint');
+        if (!sel || !hint) { return; }
+        var opt = sel.options[sel.selectedIndex];
+        var factor = opt ? opt.getAttribute('data-factor') : null;
+        if (factor) {
+            hint.textContent = '换算：1 ' + opt.textContent + ' = ' + factor + ' ' + baseUnit;
+        } else {
+            hint.textContent = '默认按物料基本单位（' + (baseUnit || '-') + '）收发';
+        }
+    }
+    function loadUnits() {
+        var mat = document.getElementById('material_id');
+        var sel = document.getElementById('docUnit');
+        if (!mat || !sel) { return; }
+        if (!mat.value) {
+            baseUnit = '';
+            while (sel.options.length) { sel.remove(0); }
+            var empty = document.createElement('option');
+            empty.value = '0'; empty.textContent = '-- 无 --'; sel.appendChild(empty);
+            updateUnitHint();
+            return;
+        }
+        fetch('{{ url_for("warehouse.api_units") }}?material_id=' + mat.value)
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+                if (!d.ok) { return; }
+                baseUnit = d.base_unit || '';
+                while (sel.options.length) { sel.remove(0); }
+                var base = document.createElement('option');
+                base.value = '0';
+                base.textContent = '-- 基本单位（' + (baseUnit || '-') + '）--';
+                sel.appendChild(base);
+                (d.conversions || []).forEach(function (c) {
+                    var op = document.createElement('option');
+                    op.value = c.unit_id;
+                    op.textContent = c.name;
+                    op.setAttribute('data-factor', c.factor);
+                    sel.appendChild(op);
+                });
+                updateUnitHint();
+            })
+            .catch(function () { /* 联动失败仍可提交，服务端会校验 */ });
     }
     document.addEventListener('DOMContentLoaded', function () {
         var t = document.getElementById('doc_type');
-        if (t) { t.addEventListener('change', toggleRelatedOrder); toggleRelatedOrder(); }
+        if (t) { t.addEventListener('change', toggleByDocType); toggleByDocType(); }
+        var mat = document.getElementById('material_id');
+        if (mat) { mat.addEventListener('change', loadUnits); loadUnits(); }
+        var sel = document.getElementById('docUnit');
+        if (sel) { sel.addEventListener('change', updateUnitHint); }
     });
 </script>
 {% endblock %}

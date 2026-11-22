@@ -62,6 +62,14 @@ class StockDocument(SoftDeleteMixin, db.Model):
     handler_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, comment='经手人')
     related_order_id = db.Column(db.Integer, db.ForeignKey('work_orders.id'), nullable=True,
                                  comment='关联工单，可空（P1 领料用）')
+    supplier_id = db.Column(db.Integer, db.ForeignKey('suppliers.id'), nullable=True,
+                            comment='关联供应商档案（可空，仅入库单常用）')
+    unit_id = db.Column(db.Integer, db.ForeignKey('units.id'), nullable=True,
+                        comment='录入单位（可空=物料基本单位）')
+    unit_name = db.Column(db.String(32), nullable=False, default='', comment='录入单位名称快照')
+    factor = db.Column(db.Float(), nullable=True, comment='录入时换算系数快照')
+    input_quantity = db.Column(db.Integer(), nullable=True,
+                               comment='用户录入数量；quantity 为折算后基本单位数量')
     remark = db.Column(db.String(255), nullable=False, default='', comment='备注')
     created_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, comment='创建人')
     created_at = db.Column(db.DateTime, nullable=False, default=now, comment='创建时间')
@@ -71,6 +79,8 @@ class StockDocument(SoftDeleteMixin, db.Model):
     handler = db.relationship('User', foreign_keys=[handler_id])
     creator = db.relationship('User', foreign_keys=[created_by])
     related_order = db.relationship('WorkOrder', backref='stock_documents')
+    supplier = db.relationship('Supplier', foreign_keys=[supplier_id])
+    unit = db.relationship('Unit', foreign_keys=[unit_id])
 
     def __repr__(self) -> str:
         return '<StockDocument %s>' % self.doc_no

@@ -7,12 +7,18 @@ from flask_login import current_user, login_required
 from sqlalchemy import func, or_
 
 from app import db
-from app.forms.production import (DefectReasonForm, IssueForm, ProcessForm, QualityRecordForm,
-                                  StepLaborForm, WorkOrderForm, WorkOrderStepForm,
-                                  fill_defect_reason_choices, fill_department_choices,
-                                  fill_issue_choices, fill_process_choices,
-                                  fill_workorder_choices)
-from app.models.production import DefectReason, PRIORITY_LABELS, Process, WorkOrder, WorkOrderStep
+from app.forms.partner import CustomerForm
+from app.forms.production import (DefectReasonForm, IssueForm, ProcessForm, ProductForm,
+                                  ProcessRouteForm, QualityRecordForm, StepLaborForm,
+                                  WorkOrderForm, WorkOrderStepForm, fill_defect_reason_choices,
+                                  fill_department_choices, fill_customer_choices,
+                                  fill_issue_choices,
+                                  fill_process_choices, fill_product_choices,
+                                  fill_route_choices, fill_workorder_choices)
+from app.models.material import Material
+from app.models.partner import Customer
+from app.models.production import (BomItem, DefectReason, PRIORITY_LABELS, Process, Product,
+                                   ProcessRoute, ProcessRouteItem, WorkOrder, WorkOrderStep)
 from app.models.system import OperationLog
 from app.models.user import User
 from app.models.warehouse import Inventory, StockDocument
@@ -21,12 +27,36 @@ from app.services.inventory_service import InsufficientStockError, InventoryServ
 from app.services.log_service import log_operation
 from app.services.scheduling_service import apply_plan, plan_status, sum_standard_hours
 from app.services.soft_delete_service import mark_deleted
+from app.services.unit_service import UnitConversionError, resolve_base_quantity
 from app.utils.data_scope import visible_department_ids
 from app.utils.delete_guard import find_references, format_references
 from app.utils.permissions import permission_required
 from app.utils.time_utils import now
 
 bp = Blueprint('production', __name__, url_prefix='/production')
+
+# 工单详情页签：info=工单资料 / steps=工序 / logs=操作日志
+DETAIL_TABS = ('info', 'steps', 'logs')
+
+# 看板条形图配色（与看板列头徽章保持一致）
+BOARD_BAR_CLASSES = {
+    'pending': 'bg-secondary', 'in_progress': 'bg-primary',
+    'completed': 'bg-success', 'accepted': 'bg-dark',
+}
+
+
+def detail_tab() -> str:
+    """读取并校验当前详情页签，非法值回退 info。"""
+    tab = request.args.get('tab')
+    return tab if tab in DETAIL_TABS else 'info'
+
+
+def detail_redirect(order_id):
+    """重定向回工单详情并保留页签（默认 info 不写 URL 参数）。"""
+    tab = detail_tab()
+    if tab == 'info':
+        return redirect(url_for('production.order_detail', order_id=order_id))
+    return redirect(url_for('production.order_detail', order_id=order_id, tab=tab))
 
 
 # ---------------- 工序档案（P2：主数据统一维护，工单只能引用）----------------
@@ -230,6 +260,400 @@ def process_delete(process_id):
     return redirect(url_for('production.process_list'))
 
 
+# ---------------- 产品档案与 BOM（单层用料清单，工单/路线只引用不手输）----------------
+
+def _duplicate_product(code, name, exclude_id=None):
+    """产品编号/名称唯一性只校验未删除记录（与工序/路线口径一致）。"""
+    query = Product.query.filter((Product.code == code) | (Product.name == name))
+    if exclude_id:
+        query = query.filter(Product.id != exclude_id)
+    return query.first()
+
+
+def _save_bom_items(product):
+    """按勾选物料与单件用量物理替换 BOM 明细；返回 (错误提示, 明细数)。"""
+    seen = set()
+    picked = []
+    for mid in request.form.getlist('material_ids', type=int):
+        if not mid or mid in seen:
+            continue
+        seen.add(mid)
+        material = db.session.get(Material, mid)
+        if material is None or not material.is_active:
+            return '所选物料不存在或已停用，请刷新后重试', 0
+        qty = request.form.get('qty_%d' % mid, type=float)
+        if qty is None or qty <= 0:
+            return '物料「%s」的单件用量必须大于 0' % material.name, 0
+        # 单位取自物料档案做快照，后续物料改单位不影响历史 BOM 读数
+        picked.append((mid, qty, material.unit or ''))
+    BomItem.query.filter_by(product_id=product.id).delete(synchronize_session=False)
+    db.session.add_all([
+        BomItem(product_id=product.id, material_id=mid, quantity=qty, unit=unit)
+        for mid, qty, unit in picked
+    ])
+    db.session.expire(product, ['bom_items'])
+    return None, len(picked)
+
+
+@bp.route('/products')
+@login_required
+@permission_required('production.view')
+def product_list():
+    """产品档案列表 + 新增/编辑同页表单（含 BOM 用料明细）。"""
+    edit_id = request.args.get('edit_id', type=int)
+    product = db.session.get(Product, edit_id) if edit_id else None
+    form = ProductForm(obj=product)
+    products = Product.query.order_by(Product.code, Product.id).all()
+    materials = Material.query.filter_by(is_active=True).order_by(Material.code).all()
+    selected = ({item.material_id: (item.quantity, item.unit)
+                 for item in product.bom_items} if product else {})
+    return render_template('production/product_list.html', form=form, product=product,
+                           products=products, materials=materials, selected=selected)
+
+
+@bp.route('/products/new', methods=['POST'])
+@login_required
+@permission_required('production.product.manage')
+def product_new():
+    form = ProductForm()
+    if not form.validate_on_submit():
+        flash('产品档案表单校验失败', 'danger')
+        return redirect(url_for('production.product_list'))
+    code, name = form.code.data.strip(), form.name.data.strip()
+    if _duplicate_product(code, name):
+        flash('产品编号或名称已存在', 'danger')
+        return redirect(url_for('production.product_list'))
+    product = Product(code=code, name=name, spec=(form.spec.data or '').strip(),
+                      unit=(form.unit.data or '个').strip(), remark=form.remark.data or '')
+    db.session.add(product)
+    db.session.flush()
+    error, item_count = _save_bom_items(product)
+    if error:
+        db.session.rollback()
+        flash(error, 'danger')
+        return redirect(url_for('production.product_list'))
+    log_operation(module='production', action='create', target_type='product',
+                  target_id=product.id,
+                  summary='创建产品「%s」，含 %d 条 BOM 用料' % (name, item_count))
+    db.session.commit()
+    flash('产品「%s」已创建，含 %d 条 BOM 用料' % (name, item_count), 'success')
+    return redirect(url_for('production.product_list'))
+
+
+@bp.route('/products/<int:product_id>/edit', methods=['POST'])
+@login_required
+@permission_required('production.product.manage')
+def product_edit(product_id):
+    product = db.get_or_404(Product, product_id)
+    form = ProductForm(obj=product)
+    if not form.validate_on_submit():
+        flash('产品档案表单校验失败', 'danger')
+        return redirect(url_for('production.product_list'))
+    code, name = form.code.data.strip(), form.name.data.strip()
+    if _duplicate_product(code, name, exclude_id=product.id):
+        flash('产品编号或名称已存在', 'danger')
+        return redirect(url_for('production.product_list'))
+    product.code = code
+    product.name = name
+    product.spec = (form.spec.data or '').strip()
+    product.unit = (form.unit.data or '个').strip()
+    product.remark = form.remark.data or ''
+    error, item_count = _save_bom_items(product)
+    if error:
+        db.session.rollback()
+        flash(error, 'danger')
+        return redirect(url_for('production.product_list'))
+    log_operation(module='production', action='update', target_type='product',
+                  target_id=product.id,
+                  summary='保存产品「%s」，含 %d 条 BOM 用料' % (name, item_count))
+    db.session.commit()
+    flash('产品「%s」已保存' % name, 'success')
+    return redirect(url_for('production.product_list'))
+
+
+@bp.route('/products/<int:product_id>/toggle', methods=['POST'])
+@login_required
+@permission_required('production.product.manage')
+def product_toggle(product_id):
+    product = db.get_or_404(Product, product_id)
+    product.is_active = not product.is_active
+    db.session.commit()
+    flash('产品「%s」已%s' % (product.name, '启用' if product.is_active else '停用'),
+          'success' if product.is_active else 'warning')
+    return redirect(url_for('production.product_list'))
+
+
+@bp.route('/products/<int:product_id>/delete', methods=['POST'])
+@login_required
+@permission_required('production.product.manage')
+def product_delete(product_id):
+    """软删产品：BOM 明细同步隐藏；历史工单靠名称快照照常显示，不受影响。"""
+    product = db.get_or_404(Product, product_id)
+    for item in (BomItem.query.execution_options(include_deleted=True)
+                 .filter_by(product_id=product.id).all()):
+        item.is_deleted = True
+    name = product.name
+    mark_deleted(product, module='production', target_type='product',
+                 summary='删除产品「%s」，可在回收站恢复' % name)
+    flash('产品「%s」已删除，可在系统管理→回收站恢复' % name, 'success')
+    return redirect(url_for('production.product_list'))
+
+
+# ---------------- 客户档案（工单的下单方，名称写快照）----------------
+
+def _duplicate_partner(model, code, name, exclude_id=None):
+    """客户/供应商编码或名称唯一性只校验未删除记录。"""
+    query = model.query.filter((model.code == code) | (model.name == name))
+    if exclude_id:
+        query = query.filter(model.id != exclude_id)
+    return query.first()
+
+
+@bp.route('/customers')
+@login_required
+@permission_required('production.view')
+def customer_list():
+    """客户档案列表 + 新增/编辑同页表单。"""
+    edit_id = request.args.get('edit_id', type=int)
+    customer = db.session.get(Customer, edit_id) if edit_id else None
+    form = CustomerForm(obj=customer)
+    customers = Customer.query.order_by(Customer.code, Customer.id).all()
+    return render_template('production/customer_list.html', form=form, customer=customer,
+                           customers=customers)
+
+
+@bp.route('/customers/new', methods=['POST'])
+@login_required
+@permission_required('production.customer.manage')
+def customer_new():
+    form = CustomerForm()
+    if not form.validate_on_submit():
+        flash('客户档案表单校验失败', 'danger')
+        return redirect(url_for('production.customer_list'))
+    code, name = form.code.data.strip(), form.name.data.strip()
+    if _duplicate_partner(Customer, code, name):
+        flash('客户编号或名称已存在', 'danger')
+        return redirect(url_for('production.customer_list'))
+    customer = Customer(code=code, name=name, contact=(form.contact.data or '').strip(),
+                        phone=(form.phone.data or '').strip(),
+                        address=(form.address.data or '').strip(),
+                        tax_no=(form.tax_no.data or '').strip(), remark=form.remark.data or '')
+    db.session.add(customer)
+    log_operation(module='production', action='create', target_type='customer',
+                  target_id=customer.id, summary='创建客户「%s」' % name)
+    db.session.commit()
+    flash('客户「%s」已创建' % name, 'success')
+    return redirect(url_for('production.customer_list'))
+
+
+@bp.route('/customers/<int:customer_id>/edit', methods=['POST'])
+@login_required
+@permission_required('production.customer.manage')
+def customer_edit(customer_id):
+    customer = db.get_or_404(Customer, customer_id)
+    form = CustomerForm(obj=customer)
+    if not form.validate_on_submit():
+        flash('客户档案表单校验失败', 'danger')
+        return redirect(url_for('production.customer_list'))
+    code, name = form.code.data.strip(), form.name.data.strip()
+    if _duplicate_partner(Customer, code, name, exclude_id=customer.id):
+        flash('客户编号或名称已存在', 'danger')
+        return redirect(url_for('production.customer_list'))
+    customer.code = code
+    customer.name = name
+    customer.contact = (form.contact.data or '').strip()
+    customer.phone = (form.phone.data or '').strip()
+    customer.address = (form.address.data or '').strip()
+    customer.tax_no = (form.tax_no.data or '').strip()
+    customer.remark = form.remark.data or ''
+    log_operation(module='production', action='update', target_type='customer',
+                  target_id=customer.id, summary='保存客户「%s」' % name)
+    db.session.commit()
+    flash('客户「%s」已保存' % name, 'success')
+    return redirect(url_for('production.customer_list'))
+
+
+@bp.route('/customers/<int:customer_id>/toggle', methods=['POST'])
+@login_required
+@permission_required('production.customer.manage')
+def customer_toggle(customer_id):
+    customer = db.get_or_404(Customer, customer_id)
+    customer.is_active = not customer.is_active
+    db.session.commit()
+    flash('客户「%s」已%s' % (customer.name, '启用' if customer.is_active else '停用'),
+          'success' if customer.is_active else 'warning')
+    return redirect(url_for('production.customer_list'))
+
+
+@bp.route('/customers/<int:customer_id>/delete', methods=['POST'])
+@login_required
+@permission_required('production.customer.manage')
+def customer_delete(customer_id):
+    """软删客户：历史工单靠名称快照显示，不受影响。"""
+    customer = db.get_or_404(Customer, customer_id)
+    name = customer.name
+    mark_deleted(customer, module='production', target_type='customer',
+                 summary='删除客户「%s」，可在回收站恢复' % name)
+    flash('客户「%s」已删除，可在系统管理→回收站恢复' % name, 'success')
+    return redirect(url_for('production.customer_list'))
+
+
+# ---------------- 工艺路线（工序组：工单新建时可一键批量生成工序）----------------
+
+def _duplicate_route(code, name, exclude_id=None):
+    """路线编码/名称唯一性只校验未删除记录（与工序口径一致）。"""
+    query = ProcessRoute.query.filter(
+        (ProcessRoute.code == code) | (ProcessRoute.name == name))
+    if exclude_id:
+        query = query.filter(ProcessRoute.id != exclude_id)
+    return query.first()
+
+
+def _save_route_items(route):
+    """按勾选工序与顺序号物理替换路线明细；返回 (错误提示, 明细数)。"""
+    seen = set()
+    picked = []
+    for pid in request.form.getlist('process_ids', type=int):
+        if not pid or pid in seen:
+            continue
+        seen.add(pid)
+        process = db.session.get(Process, pid)
+        if process is None or not process.is_active:
+            return '所选工序不存在或已停用，请刷新后重试', 0
+        seq = request.form.get('seq_%d' % pid, type=int) or (len(picked) + 1)
+        if seq < 1:
+            seq = len(picked) + 1
+        picked.append((seq, pid))
+    picked.sort(key=lambda item: (item[0], item[1]))
+    # 明细无审计要求，物理替换即可；避免软删旧行占用 (route_id, seq) 唯一键
+    ProcessRouteItem.query.filter_by(route_id=route.id).delete(synchronize_session=False)
+    db.session.add_all([
+        ProcessRouteItem(route_id=route.id, process_id=pid, seq=index + 1)
+        for index, (_, pid) in enumerate(picked)
+    ])
+    db.session.expire(route, ['items'])
+    return None, len(picked)
+
+
+@bp.route('/process-routes')
+@login_required
+@permission_required('production.view')
+def process_route_list():
+    """工艺路线列表 + 新增/编辑同页表单。"""
+    edit_id = request.args.get('edit_id', type=int)
+    route = db.session.get(ProcessRoute, edit_id) if edit_id else None
+    form = ProcessRouteForm(obj=route) if route else ProcessRouteForm()
+    fill_product_choices(form)
+    if route and route.product_id and all(
+            c[0] != route.product_id for c in form.product_id.choices):
+        form.product_id.choices.append(
+            (route.product_id, '%s（已停用）' % (route.product.name if route.product
+                                              else route.product_name)))
+    routes = ProcessRoute.query.order_by(ProcessRoute.code, ProcessRoute.id).all()
+    processes = (Process.query.filter_by(is_active=True)
+                 .order_by(Process.sort_order, Process.id).all())
+    selected = {item.process_id: item.seq for item in route.items} if route else {}
+    return render_template('production/process_route_list.html', form=form, route=route,
+                           routes=routes, processes=processes, selected=selected)
+
+
+@bp.route('/process-routes/new', methods=['POST'])
+@login_required
+@permission_required('production.route.manage')
+def process_route_new():
+    form = ProcessRouteForm()
+    fill_product_choices(form)
+    if not form.validate_on_submit():
+        flash('工艺路线表单校验失败', 'danger')
+        return redirect(url_for('production.process_route_list'))
+    code, name = form.code.data.strip(), form.name.data.strip()
+    if _duplicate_route(code, name):
+        flash('工艺路线编码或名称已存在', 'danger')
+        return redirect(url_for('production.process_route_list'))
+    product = db.session.get(Product, form.product_id.data) if form.product_id.data else None
+    route = ProcessRoute(code=code, name=name,
+                         product_id=product.id if product else None,
+                         product_name=(product.name if product
+                                       else (form.product_name.data or '').strip()),
+                         remark=form.remark.data or '')
+    db.session.add(route)
+    db.session.flush()
+    error, item_count = _save_route_items(route)
+    if error:
+        db.session.rollback()
+        flash(error, 'danger')
+        return redirect(url_for('production.process_route_list'))
+    log_operation(module='production', action='create', target_type='process_route',
+                  target_id=route.id,
+                  summary='创建工艺路线「%s」，含 %d 道工序' % (name, item_count))
+    db.session.commit()
+    flash('工艺路线「%s」已创建，含 %d 道工序' % (name, item_count), 'success')
+    return redirect(url_for('production.process_route_list'))
+
+
+@bp.route('/process-routes/<int:route_id>/edit', methods=['POST'])
+@login_required
+@permission_required('production.route.manage')
+def process_route_edit(route_id):
+    route = db.get_or_404(ProcessRoute, route_id)
+    form = ProcessRouteForm(obj=route)
+    fill_product_choices(form)
+    if not form.validate_on_submit():
+        flash('工艺路线表单校验失败', 'danger')
+        return redirect(url_for('production.process_route_list'))
+    code, name = form.code.data.strip(), form.name.data.strip()
+    if _duplicate_route(code, name, exclude_id=route.id):
+        flash('工艺路线编码或名称已存在', 'danger')
+        return redirect(url_for('production.process_route_list'))
+    product = db.session.get(Product, form.product_id.data) if form.product_id.data else None
+    route.code = code
+    route.name = name
+    route.product_id = product.id if product else None
+    route.product_name = (product.name if product
+                          else (form.product_name.data or '').strip())
+    route.remark = form.remark.data or ''
+    error, item_count = _save_route_items(route)
+    if error:
+        db.session.rollback()
+        flash(error, 'danger')
+        return redirect(url_for('production.process_route_list'))
+    log_operation(module='production', action='update', target_type='process_route',
+                  target_id=route.id,
+                  summary='保存工艺路线「%s」，含 %d 道工序' % (name, item_count))
+    db.session.commit()
+    flash('工艺路线已保存', 'success')
+    return redirect(url_for('production.process_route_list'))
+
+
+@bp.route('/process-routes/<int:route_id>/toggle', methods=['POST'])
+@login_required
+@permission_required('production.route.manage')
+def process_route_toggle(route_id):
+    route = db.get_or_404(ProcessRoute, route_id)
+    route.is_active = not route.is_active
+    db.session.commit()
+    flash('工艺路线「%s」已%s' % (route.name, '启用' if route.is_active else '停用'),
+          'success' if route.is_active else 'warning')
+    return redirect(url_for('production.process_route_list'))
+
+
+@bp.route('/process-routes/<int:route_id>/delete', methods=['POST'])
+@login_required
+@permission_required('production.route.manage')
+def process_route_delete(route_id):
+    """软删除路线：明细同步隐藏（回收站恢复时一并恢复）。"""
+    route = db.get_or_404(ProcessRoute, route_id)
+    for item in (ProcessRouteItem.query
+                 .execution_options(include_deleted=True)
+                 .filter_by(route_id=route.id).all()):
+        item.is_deleted = True
+    name = route.name
+    mark_deleted(route, module='production', target_type='process_route',
+                 summary='删除工艺路线「%s」，可在回收站恢复' % name)
+    flash('工艺路线「%s」已删除，可在系统管理→回收站恢复' % name, 'success')
+    return redirect(url_for('production.process_route_list'))
+
+
 # ---------------- 不良原因主数据（P2-6：工单质量记录只能引用）----------------
 
 @bp.route('/defect-reasons')
@@ -340,7 +764,19 @@ def order_new():
     form = WorkOrderForm()
     fill_workorder_choices(form)
     fill_department_choices(form)
+    fill_product_choices(form)
+    fill_customer_choices(form)
+    fill_route_choices(form)
+    route_product_map = {
+        r.id: r.product_id for r in ProcessRoute.query.filter_by(is_active=True).all()
+    }
     if form.validate_on_submit():
+        # 产品档案与产品名称二选一：选了档案则名称自动带出，未建档才需手输
+        if not form.product_id.data and not (form.product_name.data or '').strip():
+            flash('请选择产品档案；产品尚未建档时才需手工填写产品名称', 'danger')
+            return render_template('production/order_form.html', form=form, title='新建工单',
+                                   priority_labels=PRIORITY_LABELS, show_route=True,
+                                   route_product_map=route_product_map)
         manual_start = form.plan_start_date.data
         manual_end = form.plan_end_date.data
         # L1 覆盖判定：两个计划日期只要有一个非空即视为人工，此时两个都必须填
@@ -348,10 +784,28 @@ def order_new():
             flash('人工指定计划日期时，计划开工日与计划完工日必须同时填写；'
                   '两个都留空则由系统按交期自动倒排', 'danger')
             return render_template('production/order_form.html', form=form, title='新建工单',
-                                   priority_labels=PRIORITY_LABELS)
+                                   priority_labels=PRIORITY_LABELS, show_route=True,
+                                   route_product_map=route_product_map)
+        product = db.session.get(Product, form.product_id.data) if form.product_id.data else None
+        if product is not None and not product.is_active:
+            flash('所选产品已停用，请刷新页面重新选择', 'danger')
+            return render_template('production/order_form.html', form=form, title='新建工单',
+                                   priority_labels=PRIORITY_LABELS, show_route=True,
+                                   route_product_map=route_product_map)
+        customer = (db.session.get(Customer, form.customer_id.data)
+                    if form.customer_id.data else None)
+        if customer is not None and not customer.is_active:
+            flash('所选客户已停用，请刷新页面重新选择', 'danger')
+            return render_template('production/order_form.html', form=form, title='新建工单',
+                                   priority_labels=PRIORITY_LABELS, show_route=True,
+                                   route_product_map=route_product_map)
         order = WorkOrder(
             order_no=_generate_order_no(),
-            product_name=form.product_name.data.strip(),
+            product_id=product.id if product else None,
+            # 名称写快照：产品后续改名不影响历史工单（与工序名快照同口径）
+            product_name=product.name if product else (form.product_name.data or '').strip(),
+            customer_id=customer.id if customer else None,
+            customer_name=customer.name if customer else (form.customer_name.data or '').strip(),
             quantity=form.quantity.data,
             due_date=form.due_date.data,
             leader_id=form.leader_id.data or None,
@@ -362,17 +816,36 @@ def order_new():
         )
         db.session.add(order)
         db.session.flush()
+
+        # 工艺路线批量生成工序：名称做快照，顺序沿用路线明细；停用的工序跳过
+        route = db.session.get(ProcessRoute, form.route_id.data) if form.route_id.data else None
+        route_note = ''
+        if route is not None and route.is_active:
+            added = 0
+            for item in route.items:
+                process = db.session.get(Process, item.process_id)
+                if process is None or not process.is_active:
+                    continue
+                db.session.add(WorkOrderStep(work_order_id=order.id,
+                                             process_id=process.id, name=process.name,
+                                             seq=item.seq, remark=''))
+                added += 1
+            route_note = '；按工艺路线「%s」批量添加 %d 道工序' % (route.name, added)
+            if route.items and added < len(route.items):
+                route_note += '（%d 道工序已停用被跳过）' % (len(route.items) - added)
+
         plan_result = apply_plan(order, manual_start, manual_end)
         log_operation(module='production', action='create', target_type='work_order',
                       target_id=order.id,
-                      summary='创建工单 %s；计划：%s' % (
-                          order.order_no, plan_result_text(plan_result, order)))
+                      summary='创建工单 %s；计划：%s%s' % (
+                          order.order_no, plan_result_text(plan_result, order), route_note))
         db.session.commit()
-        flash('工单 %s 创建成功；%s' % (order.order_no,
-                                   plan_result_text(plan_result, order)), 'success')
-        return redirect(url_for('production.order_detail', order_id=order.id))
+        flash('工单 %s 创建成功；%s%s' % (order.order_no,
+                                    plan_result_text(plan_result, order), route_note), 'success')
+        return detail_redirect(order.id)
     return render_template('production/order_form.html', form=form, title='新建工单',
-                           priority_labels=PRIORITY_LABELS)
+                           priority_labels=PRIORITY_LABELS, show_route=True,
+                           route_product_map=route_product_map)
 
 
 @bp.route('/orders/<int:order_id>/edit', methods=['GET', 'POST'])
@@ -388,15 +861,42 @@ def order_edit(order_id):
         form.plan_end_date.data = None
     fill_workorder_choices(form)
     fill_department_choices(form)
+    fill_product_choices(form)
+    fill_customer_choices(form)
+    fill_route_choices(form)
+    # 历史工单可能关联了已停用产品/客户：补回选项，避免编辑时丢失关联
+    if order.product_id and all(c[0] != order.product_id for c in form.product_id.choices):
+        form.product_id.choices.append(
+            (order.product_id, '%s（已停用）' % (order.product.name if order.product
+                                              else order.product_name)))
+    if order.customer_id and all(c[0] != order.customer_id for c in form.customer_id.choices):
+        form.customer_id.choices.append(
+            (order.customer_id, '%s（已停用）' % (order.customer.name if order.customer
+                                               else order.customer_name)))
+    route_product_map = {
+        r.id: r.product_id for r in ProcessRoute.query.filter_by(is_active=True).all()
+    }
     if form.validate_on_submit():
+        if not form.product_id.data and not (form.product_name.data or '').strip():
+            flash('请选择产品档案；产品尚未建档时才需手工填写产品名称', 'danger')
+            return render_template('production/order_form.html', form=form, title='编辑工单',
+                                   target=order, priority_labels=PRIORITY_LABELS, show_route=False,
+                                   route_product_map=route_product_map)
         manual_start = form.plan_start_date.data
         manual_end = form.plan_end_date.data
         if (manual_start is None) != (manual_end is None):
             flash('人工指定计划日期时，计划开工日与计划完工日必须同时填写；'
                   '两个都留空则由系统按交期自动倒排', 'danger')
             return render_template('production/order_form.html', form=form, title='编辑工单',
-                                   target=order, priority_labels=PRIORITY_LABELS)
-        order.product_name = form.product_name.data.strip()
+                                   target=order, priority_labels=PRIORITY_LABELS, show_route=False,
+                                   route_product_map=route_product_map)
+        product = db.session.get(Product, form.product_id.data) if form.product_id.data else None
+        order.product_id = product.id if product else None
+        order.product_name = product.name if product else (form.product_name.data or '').strip()
+        customer = (db.session.get(Customer, form.customer_id.data)
+                    if form.customer_id.data else None)
+        order.customer_id = customer.id if customer else None
+        order.customer_name = customer.name if customer else (form.customer_name.data or '').strip()
         order.quantity = form.quantity.data
         order.due_date = form.due_date.data
         order.leader_id = form.leader_id.data or None
@@ -410,9 +910,10 @@ def order_edit(order_id):
                           order.order_no, plan_result_text(plan_result, order)))
         db.session.commit()
         flash('工单已保存；%s' % plan_result_text(plan_result, order), 'success')
-        return redirect(url_for('production.order_detail', order_id=order.id))
+        return detail_redirect(order.id)
     return render_template('production/order_form.html', form=form, title='编辑工单',
-                           target=order, priority_labels=PRIORITY_LABELS)
+                           target=order, priority_labels=PRIORITY_LABELS, show_route=False,
+                           route_product_map=route_product_map)
 
 
 @bp.route('/orders/<int:order_id>/delete', methods=['POST'])
@@ -464,6 +965,22 @@ def order_detail(order_id):
         plan_hint = '未填写交期，无法倒排'
     elif sum_standard_hours(order) <= 0:
         plan_hint = '未维护工序参考工时，无法倒排'
+    # BOM 标准用料：优先走产品关联，历史工单按名称快照回退匹配
+    bom_product = order.product
+    if bom_product is None and order.product_name:
+        bom_product = Product.query.filter_by(name=order.product_name).first()
+    bom_rows = []
+    if bom_product is not None:
+        for item in bom_product.bom_items:
+            mat = item.material
+            bom_rows.append({
+                'code': mat.code if mat else '-',
+                'name': mat.name if mat else '#' + str(item.material_id),
+                'spec': mat.spec if mat else '',
+                'quantity': item.quantity,
+                'unit': item.unit,
+                'total': round((item.quantity or 0) * (order.quantity or 0), 2),
+            })
     return render_template('production/order_detail.html', order=order, step_form=step_form,
                            status_labels=WorkOrder.STATUS_LABELS,
                            step_labels=WorkOrderStep.STATUS_LABELS,
@@ -473,7 +990,8 @@ def order_detail(order_id):
                            can_record_quality=order.status in ('in_progress', 'completed'),
                            total_hours=total_hours, labor_form=StepLaborForm(),
                            quality_form=quality_form, plan=plan, plan_hint=plan_hint,
-                           priority_labels=PRIORITY_LABELS)
+                           bom_product=bom_product, bom_rows=bom_rows,
+                           priority_labels=PRIORITY_LABELS, active_tab=detail_tab())
 
 
 @bp.route('/orders/<int:order_id>/status', methods=['POST'])
@@ -498,7 +1016,31 @@ def order_status(order_id):
     else:
         flash('非法的状态流转：%s → %s' % (WorkOrder.STATUS_LABELS.get(order.status, order.status),
                                          WorkOrder.STATUS_LABELS.get(target, target or '空')), 'danger')
-    return redirect(url_for('production.order_detail', order_id=order.id))
+    return detail_redirect(order.id)
+
+
+@bp.route('/orders/<int:order_id>/reopen', methods=['POST'])
+@login_required
+@permission_required('production.manage')
+def order_reopen(order_id):
+    """撤销开工：in_progress → pending，作为工序清单冻结后的补救路径。
+
+    只回退工单状态；工序状态、实耗工时、质量记录、领料记录全部保留，
+    管理员回到待开始调整完工序后再正常流转至进行中即可继续生产。
+    数据权限统一走 base_order_query()，跨部门工单直接 404。
+    """
+    order = base_order_query().filter_by(id=order_id).first_or_404()
+    if order.status != 'in_progress':
+        flash('只有「进行中」工单可以撤销开工', 'danger')
+        return detail_redirect(order.id)
+    order.status = 'pending'
+    log_operation(module='production', action='transition', target_type='work_order',
+                  target_id=order.id,
+                  summary='工单 %s 撤销开工：进行中 → 待开始（用于调整工序清单）' % order.order_no)
+    db.session.commit()
+    flash('工单 %s 已撤销开工，回到「待开始」；现在可以增删工序，'
+          '调整完成后再流转至「进行中」' % order.order_no, 'success')
+    return detail_redirect(order.id)
 
 
 @bp.route('/orders/<int:order_id>/plan/recalculate', methods=['POST'])
@@ -513,7 +1055,7 @@ def order_plan_recalculate(order_id):
     order = base_order_query().filter_by(id=order_id).first_or_404()
     if order.status not in UNFINISHED_ORDER_STATUSES:
         flash('已完结工单不参与重新倒排', 'danger')
-        return redirect(url_for('production.order_detail', order_id=order.id))
+        return detail_redirect(order.id)
     # 不传人工日期：强制回到自动模式并清除 plan_manual
     plan_result = apply_plan(order)
     log_operation(module='production', action='update', target_type='work_order',
@@ -523,15 +1065,23 @@ def order_plan_recalculate(order_id):
     db.session.commit()
     flash('工单 %s 已重新倒排；%s' % (order.order_no, plan_result_text(plan_result, order)),
           'success' if plan_result != 'unavailable' else 'warning')
-    return redirect(url_for('production.order_detail', order_id=order.id))
+    return detail_redirect(order.id)
 
 
 @bp.route('/orders/<int:order_id>/steps/new', methods=['POST'])
 @login_required
 @permission_required('production.manage')
 def step_new(order_id):
-    """为工单添加工序：下拉引用已维护的工序档案，名称做快照留痕。"""
+    """为工单添加工序：仅「待开始」工单可增删工序，开工后工序清单冻结。
+
+    补救路径：管理员可先将进行中工单"撤销开工"回到待开始，调整完再流转回来。
+    """
     order = db.get_or_404(WorkOrder, order_id)
+    if order.status != 'pending':
+        flash('工单处于「%s」状态，工序清单已冻结，不能添加新工序；'
+              '如需调整请先由管理员撤销开工回到「待开始」' %
+              WorkOrder.STATUS_LABELS.get(order.status, order.status), 'danger')
+        return detail_redirect(order.id)
     form = WorkOrderStepForm()
     fill_workorder_choices(form)
     fill_process_choices(form)
@@ -539,7 +1089,7 @@ def step_new(order_id):
         process = db.session.get(Process, form.process_id.data)
         if process is None or not process.is_active:
             flash('所选工序不存在或已停用，请刷新后重试', 'danger')
-            return redirect(url_for('production.order_detail', order_id=order.id))
+            return detail_redirect(order.id)
         step = WorkOrderStep(
             work_order_id=order.id,
             process_id=process.id,
@@ -557,7 +1107,7 @@ def step_new(order_id):
         flash('工序「%s」已添加' % step.name, 'success')
     else:
         flash('请从下拉列表选择已维护的工序', 'danger')
-    return redirect(url_for('production.order_detail', order_id=order.id))
+    return detail_redirect(order.id)
 
 
 @bp.route('/steps/<int:step_id>/status', methods=['POST'])
@@ -573,7 +1123,7 @@ def step_status(step_id):
         flash('工单处于「%s」状态，只有「进行中」工单才能执行工序流转；'
               '待开始工单请先流转工单状态' % WorkOrder.STATUS_LABELS.get(order.status, order.status),
               'danger')
-        return redirect(url_for('production.order_detail', order_id=order.id))
+        return detail_redirect(order.id)
     target = request.form.get('status', '')
     allowed = step.next_status()
     if target and target == allowed:
@@ -596,7 +1146,7 @@ def step_status(step_id):
                                              WorkOrderStep.STATUS_LABELS.get(target, target)), 'success')
     else:
         flash('非法的工序状态流转', 'danger')
-    return redirect(url_for('production.order_detail', order_id=step.work_order_id))
+    return detail_redirect(step.work_order_id)
 
 
 @bp.route('/steps/<int:step_id>/labor', methods=['POST'])
@@ -610,7 +1160,7 @@ def step_labor(step_id):
         abort(404)
     if not order.can_run_steps:
         flash('只有「进行中」工单才能修正工序工时', 'danger')
-        return redirect(url_for('production.order_detail', order_id=order.id))
+        return detail_redirect(order.id)
     form = StepLaborForm()
     if form.validate_on_submit():
         old = step.labor_hours or 0
@@ -626,7 +1176,7 @@ def step_labor(step_id):
         flash('工序「%s」工时已保存' % step.name, 'success')
     else:
         flash('工时数据不合法（须为不小于0的数字）', 'danger')
-    return redirect(url_for('production.order_detail', order_id=step.work_order_id))
+    return detail_redirect(step.work_order_id)
 
 
 @bp.route('/orders/<int:order_id>/quality', methods=['POST'])
@@ -637,12 +1187,14 @@ def order_quality(order_id):
     order = db.get_or_404(WorkOrder, order_id)
     if order.status not in ('in_progress', 'completed'):
         flash('只有「进行中」或「已完成」工单才能记录质量数据', 'danger')
-        return redirect(url_for('production.order_detail', order_id=order.id))
+        return detail_redirect(order.id)
     form = QualityRecordForm()
     fill_defect_reason_choices(form)
     if not form.validate_on_submit():
-        flash('质量记录表单校验失败，请检查数量是否为不小于0的整数', 'danger')
-        return redirect(url_for('production.order_detail', order_id=order.id))
+        errors = [msg for msgs in form.errors.values() for msg in msgs]
+        flash('质量记录表单校验失败：%s' % ('；'.join(errors) if errors else '请检查输入'),
+              'danger')
+        return detail_redirect(order.id)
     output_qty = form.output_qty.data or 0
     good_qty = form.good_qty.data or 0
     defect_qty = form.defect_qty.data or 0
@@ -651,13 +1203,13 @@ def order_quality(order_id):
         reason = db.session.get(DefectReason, reason_id)
         if reason is None or not reason.is_active:
             flash('所选不良原因不存在或已停用', 'danger')
-            return redirect(url_for('production.order_detail', order_id=order.id))
+            return detail_redirect(order.id)
     try:
         order.record_quality(output_qty, good_qty, defect_qty, reason_id,
                              form.quality_remark.data or '', current_user.id)
     except ValueError as exc:
         flash(str(exc), 'danger')
-        return redirect(url_for('production.order_detail', order_id=order.id))
+        return detail_redirect(order.id)
     log_operation(module='production', action='update', target_type='work_order',
                   target_id=order.id, operator_id=current_user.id,
                   summary='工单 %s 质量记录：成品%s / 良品%s / 不良%s，良率%.2f%% 不良率%.2f%%' % (
@@ -665,7 +1217,7 @@ def order_quality(order_id):
                       order.yield_rate, order.defect_rate))
     db.session.commit()
     flash('工单 %s 质量记录已保存' % order.order_no, 'success')
-    return redirect(url_for('production.order_detail', order_id=order.id))
+    return detail_redirect(order.id)
 
 
 @bp.route('/steps/<int:step_id>/delete', methods=['POST'])
@@ -696,7 +1248,7 @@ def step_delete(step_id):
             apply_plan(order)
             db.session.commit()
         flash('工序「%s」已删除，可在回收站恢复' % name, 'warning')
-    return redirect(url_for('production.order_detail', order_id=order_id))
+    return detail_redirect(order_id)
 
 
 # ---------------- 工单领料（P1-05 / P2-03 余量显示 + 强校验）----------------
@@ -717,9 +1269,14 @@ def api_stock():
     row = (Inventory.query
            .filter_by(warehouse_id=warehouse.id, material_id=material.id).first())
     available = row.quantity if row else 0
+    from app.models.unit import UnitConversion
+    conversions = [{
+        'unit_id': c.unit_id, 'name': c.unit.name if c.unit else '', 'factor': c.factor,
+    } for c in UnitConversion.query.filter_by(material_id=material.id).all() if c.unit]
     # 单位随余量一并返回，供领料弹窗联动展示；空值兜底避免前端出现 undefined/None
     return jsonify(ok=True, available=available, warehouse=warehouse.name,
-                   material=material.name, unit=material.unit or '')
+                   material=material.name, unit=material.unit or '',
+                   conversions=conversions)
 
 
 @bp.route('/orders/<int:order_id>/issue', methods=['POST'])
@@ -731,13 +1288,13 @@ def order_issue(order_id):
     if order.status not in ('pending', 'in_progress'):
         flash('工单已%s，不能领料' % WorkOrder.STATUS_LABELS.get(order.status, order.status),
               'danger')
-        return redirect(url_for('production.order_detail', order_id=order.id))
+        return detail_redirect(order.id)
 
     form = IssueForm()
     fill_issue_choices(form)
     if not form.validate_on_submit():
         flash('领料表单校验失败', 'danger')
-        return redirect(url_for('production.order_detail', order_id=order.id))
+        return detail_redirect(order.id)
 
     # P2-03 前置清晰提示：事务内仍有行锁强校验（防并发），此处只为给出可读反馈
     from app.models.material import Material
@@ -746,33 +1303,46 @@ def order_issue(order_id):
     material = db.session.get(Material, form.material_id.data)
     if warehouse is None or not warehouse.is_active or material is None or not material.is_active:
         flash('仓库或物料不存在/已停用', 'danger')
-        return redirect(url_for('production.order_detail', order_id=order.id))
+        return detail_redirect(order.id)
+    try:
+        base_qty, conv, unit = resolve_base_quantity(
+            material, form.unit_id.data or None, form.quantity.data)
+    except UnitConversionError as exc:
+        flash(str(exc), 'danger')
+        return detail_redirect(order.id)
+
+    entered_text = '%s%s' % (form.quantity.data, (' ' + unit.name if unit else ''))
+    base_text = '%s %s' % (base_qty, material.unit or '基本单位')
     inv = (Inventory.query
            .filter_by(warehouse_id=warehouse.id, material_id=material.id).first())
     available = inv.quantity if inv else 0
-    if form.quantity.data > available:
-        flash('库存不足：【%s / %s】当前余量 %d，本次领料 %d，缺 %d' % (
-            warehouse.name, material.name, available, form.quantity.data,
-            form.quantity.data - available), 'danger')
-        return redirect(url_for('production.order_detail', order_id=order.id))
+    if base_qty > available:
+        flash('库存不足：【%s / %s】当前余量 %d，本次领料 %s（折合 %s），缺 %d' % (
+            warehouse.name, material.name, available, entered_text, base_text,
+            base_qty - available), 'danger')
+        return detail_redirect(order.id)
 
     try:
         apply_stock_document(
             doc_type='out',
             warehouse_id=form.warehouse_id.data,
             material_id=form.material_id.data,
-            quantity=form.quantity.data,
+            quantity=base_qty,
             handler_id=current_user.id,
             created_by=current_user.id,
             related_order_id=order.id,
             remark=form.remark.data or '工单领料',
+            unit_id=form.unit_id.data or None,
+            input_quantity=form.quantity.data,
             work_order_log={
                 'order_id': order.id,
                 'operator_id': current_user.id,
-                'summary': '工单 %s 领料：%s / %s ×%s' % (
-                    order.order_no, warehouse.name, material.name, form.quantity.data),
+                'summary': '工单 %s 领料：%s / %s ×%s（折合 %s）' % (
+                    order.order_no, warehouse.name, material.name, entered_text, base_text),
             },
         )
+    except UnitConversionError as exc:
+        flash(str(exc), 'danger')
     except InsufficientStockError as exc:
         # 并发兜底：前置校验通过后仍可能被其他事务抢先扣减
         flash('库存不足（并发变动），当前余量 %d，领料未成功' % exc.available, 'danger')
@@ -780,7 +1350,7 @@ def order_issue(order_id):
         flash(str(exc), 'danger')
     else:
         flash('领料成功，已关联工单 %s' % order.order_no, 'success')
-    return redirect(url_for('production.order_detail', order_id=order.id))
+    return detail_redirect(order.id)
 
 
 @bp.route('/board')
@@ -795,7 +1365,22 @@ def board():
         for status in ('pending', 'in_progress', 'completed', 'accepted')
     ]
     plan_status_map = {o.id: plan_status(o) for o in orders}
+    # 条形图统计口径与看板列完全一致（同一份 base_order_query 结果）
+    max_count = max((len(items) for _, _, items in columns), default=0)
+    chart_rows = [{
+        'status': status, 'label': label, 'count': len(items),
+        'percent': round(len(items) * 100.0 / max_count) if max_count else 0,
+        'bar_class': BOARD_BAR_CLASSES.get(status, 'bg-secondary'),
+    } for status, label, items in columns]
+    # 横轴刻度：数量少时逐个显示，数量多时取 0/¼/½/¾/最大值
+    if max_count <= 4:
+        chart_ticks = list(range(0, max_count + 1))
+    else:
+        step = max(1, max_count // 4)
+        chart_ticks = sorted({0, step, step * 2, step * 3, max_count})
     return render_template('production/board.html', columns=columns,
                            status_labels=WorkOrder.STATUS_LABELS,
                            step_labels=WorkOrderStep.STATUS_LABELS,
-                           priority_labels=PRIORITY_LABELS, plan_status_map=plan_status_map)
+                           priority_labels=PRIORITY_LABELS, plan_status_map=plan_status_map,
+                           chart_rows=chart_rows, chart_max=max_count,
+                           chart_ticks=chart_ticks, total_orders=len(orders))

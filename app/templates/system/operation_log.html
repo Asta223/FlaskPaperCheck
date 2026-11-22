@@ -10,7 +10,7 @@
             <div class="col-md-2">
                 <select class="form-select" name="module">
                     <option value="">全部模块</option>
-                    {% for m in modules %}<option value="{{ m }}" {% if module == m %}selected{% endif %}>{{ m }}</option>{% endfor %}
+                    {% for m in modules %}<option value="{{ m }}" {% if module == m %}selected{% endif %}>{{ module_labels.get(m, m) }}</option>{% endfor %}
                 </select>
             </div>
             <div class="col-md-2">
@@ -29,7 +29,7 @@
             </div>
             <div class="col-md-2"><input class="form-control" type="date" name="date_from" value="{{ date_from }}" title="开始日期"></div>
             <div class="col-md-2"><input class="form-control" type="date" name="date_to" value="{{ date_to }}" title="结束日期"></div>
-            <div class="col-auto"><button class="btn btn-outline-primary" type="submit">筛选</button></div>
+            <div class="col-auto"><button class="btn btn-outline-primary" type="submit">查询</button></div>
             <div class="col-auto"><a class="btn btn-outline-secondary" href="{{ url_for('system.operation_logs') }}">重置</a></div>
         </form>
         <div class="table-responsive">
@@ -42,7 +42,7 @@
                     <tr>
                         <td class="text-nowrap">{{ log.created_at | fmt_dt }}</td>
                         <td>{{ log.operator_name }}</td>
-                        <td><code>{{ log.module }}</code></td>
+                        <td>{{ log.module_label }}</td>
                         <td><span class="badge bg-secondary">{{ log.action_label }}</span></td>
                         <td>{% if log.target_type %}{{ log.target_type }}#{{ log.target_id }}{% else %}-{% endif %}</td>
                         <td>{{ log.summary or '-' }}</td>

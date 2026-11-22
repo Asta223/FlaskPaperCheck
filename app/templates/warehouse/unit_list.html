@@ -1,0 +1,151 @@
+{% extends "base.html" %}
+{% block title %}单位档案 - 工厂管理系统{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h4 class="mb-0"><i class="bi bi-rulers"></i> 单位档案</h4>
+    <span class="text-muted small">维护计量单位与物料换算：1 换算单位 = 系数 × 物料基本单位</span>
+</div>
+<div class="row g-3">
+    <div class="col-lg-5">
+        <div class="card shadow-sm mb-3">
+            <div class="card-header bg-white">
+                <i class="bi bi-plus-lg"></i> {{ '编辑单位' if unit else '新增单位' }}
+            </div>
+            <div class="card-body">
+                {% if 'material.unit.manage' in current_user|perm_codes %}
+                    <form method="POST" class="row g-3"
+                          action="{{ url_for('warehouse.unit_edit', unit_id=unit.id) if unit else url_for('warehouse.unit_new') }}">
+                        {{ form.hidden_tag() }}
+                        <div class="col-md-6">
+                            {{ form.code.label(class="form-label") }}
+                            {{ form.code(class="form-control", placeholder="如 PCS / BOX") }}
+                            {% for err in form.code.errors %}<div class="text-danger small">{{ err }}</div>{% endfor %}
+                        </div>
+                        <div class="col-md-6">
+                            {{ form.name.label(class="form-label") }}
+                            {{ form.name(class="form-control", placeholder="如 个 / 盒") }}
+                            {% for err in form.name.errors %}<div class="text-danger small">{{ err }}</div>{% endfor %}
+                        </div>
+                        <div class="col-md-6">
+                            {{ form.dimension.label(class="form-label") }}
+                            {{ form.dimension(class="form-select") }}
+                        </div>
+                        <div class="col-12">
+                            {{ form.remark.label(class="form-label") }}
+                            {{ form.remark(class="form-control") }}
+                        </div>
+                        <div class="col-12">
+                            {{ form.submit(class="btn btn-primary") }}
+                            {% if unit %}<a class="btn btn-outline-secondary" href="{{ url_for('warehouse.unit_list') }}">取消编辑</a>{% endif %}
+                        </div>
+                    </form>
+                {% else %}
+                    <p class="text-muted mb-0">你没有单位档案维护权限，只能查看列表。</p>
+                {% endif %}
+            </div>
+        </div>
+        <div class="card shadow-sm">
+            <div class="card-header bg-white">已维护单位（{{ units|length }}）</div>
+            <div class="card-body p-0">
+                <table class="table table-hover mb-0 align-middle">
+                    <thead class="table-light"><tr><th>编码</th><th>名称</th><th>量纲</th><th>状态</th><th class="text-end">操作</th></tr></thead>
+                    <tbody>
+                    {% for u in units %}
+                        <tr class="{% if not u.is_active %}text-muted{% endif %}">
+                            <td>{{ u.code }}</td><td class="fw-bold">{{ u.name }}</td>
+                            <td>{{ dimension_labels.get(u.dimension, u.dimension) }}</td>
+                            <td>{% if u.is_active %}<span class="badge bg-success">启用</span>{% else %}<span class="badge bg-secondary">停用</span>{% endif %}</td>
+                            <td class="text-end">
+                                {% if 'material.unit.manage' in current_user|perm_codes %}
+                                    <a class="btn btn-sm btn-outline-primary" href="{{ url_for('warehouse.unit_list', edit_id=u.id) }}">编辑</a>
+                                    <form class="d-inline" method="POST" action="{{ url_for('warehouse.unit_toggle', unit_id=u.id) }}">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                        <button class="btn btn-sm btn-outline-warning" type="submit">{{ '启用' if not u.is_active else '停用' }}</button>
+                                    </form>
+                                    <form class="d-inline" method="POST" action="{{ url_for('warehouse.unit_delete', unit_id=u.id) }}"
+                                          onsubmit="return confirm('确认删除单位「{{ u.name }}」？可在回收站恢复。');">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                        <button class="btn btn-sm btn-outline-danger" type="submit">删除</button>
+                                    </form>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% else %}
+                        <tr><td colspan="5" class="text-center text-muted py-3">暂无单位</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-7">
+        <div class="card shadow-sm mb-3">
+            <div class="card-header bg-white">
+                <i class="bi bi-arrow-left-right"></i> {{ '编辑换算关系' if conv else '新增物料换算关系' }}
+            </div>
+            <div class="card-body">
+                {% if 'material.unit.manage' in current_user|perm_codes %}
+                    <form method="POST" class="row g-3"
+                          action="{{ url_for('warehouse.unit_conversion_edit', conv_id=conv.id) if conv else url_for('warehouse.unit_conversion_new') }}">
+                        {{ conv_form.hidden_tag() }}
+                        <div class="col-md-5">
+                            {{ conv_form.material_id.label(class="form-label") }}
+                            {{ conv_form.material_id(class="form-select") }}
+                        </div>
+                        <div class="col-md-3">
+                            {{ conv_form.unit_id.label(class="form-label") }}
+                            {{ conv_form.unit_id(class="form-select") }}
+                        </div>
+                        <div class="col-md-4">
+                            {{ conv_form.factor.label(class="form-label") }}
+                            {{ conv_form.factor(class="form-control", type="number", step="any", min="0.000001") }}
+                            {% for err in conv_form.factor.errors %}<div class="text-danger small">{{ err }}</div>{% endfor %}
+                        </div>
+                        <div class="col-12">
+                            {{ conv_form.remark.label(class="form-label") }}
+                            {{ conv_form.remark(class="form-control", placeholder="如 1盒=100个") }}
+                        </div>
+                        <div class="col-12">
+                            {{ conv_form.submit(class="btn btn-primary") }}
+                            {% if conv %}<a class="btn btn-outline-secondary" href="{{ url_for('warehouse.unit_list') }}">取消编辑</a>{% endif %}
+                        </div>
+                    </form>
+                    <div class="form-text mt-2">物料基本单位取物料档案中的“单位”字段，需先在上方单位档案中建同名单位。</div>
+                {% else %}
+                    <p class="text-muted mb-0">你没有单位档案维护权限，只能查看列表。</p>
+                {% endif %}
+            </div>
+        </div>
+        <div class="card shadow-sm">
+            <div class="card-header bg-white">已维护换算关系（{{ conversions|length }}）</div>
+            <div class="card-body p-0">
+                <table class="table table-hover mb-0 align-middle">
+                    <thead class="table-light"><tr><th>物料</th><th>换算单位</th><th>系数</th><th>含义</th><th class="text-end">操作</th></tr></thead>
+                    <tbody>
+                    {% for c in conversions %}
+                        <tr>
+                            <td>{{ c.material.name if c.material else '-' }}</td>
+                            <td>{{ c.unit.name if c.unit else '-' }}</td>
+                            <td class="fw-bold">{{ c.factor }}</td>
+                            <td>1 {{ c.unit.name if c.unit else '?' }} = {{ c.factor }} {{ c.material.unit if c.material else '基本单位' }}</td>
+                            <td class="text-end">
+                                {% if 'material.unit.manage' in current_user|perm_codes %}
+                                    <a class="btn btn-sm btn-outline-primary" href="{{ url_for('warehouse.unit_list', conv_edit_id=c.id) }}">编辑</a>
+                                    <form class="d-inline" method="POST" action="{{ url_for('warehouse.unit_conversion_delete', conv_id=c.id) }}"
+                                          onsubmit="return confirm('确认删除该换算关系？可在回收站恢复。');">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                        <button class="btn btn-sm btn-outline-danger" type="submit">删除</button>
+                                    </form>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% else %}
+                        <tr><td colspan="5" class="text-center text-muted py-3">暂无换算关系</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

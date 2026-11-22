@@ -9,7 +9,7 @@
         {% if 'production.manage' in current_user|perm_codes %}
             {% set next_status = order.next_status() %}
             {% if next_status %}
-                <form class="d-inline" method="POST" action="{{ url_for('production.order_status', order_id=order.id) }}"
+                <form class="d-inline" method="POST" action="{{ url_for('production.order_status', order_id=order.id, tab=active_tab) }}"
                       onsubmit="return confirm('确认流转为「{{ status_labels.get(next_status) }}」？');">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" name="status" value="{{ next_status }}">
@@ -18,9 +18,19 @@
                     </button>
                 </form>
             {% endif %}
+            {% if order.status == 'in_progress' %}
+                <form class="d-inline" method="POST"
+                      action="{{ url_for('production.order_reopen', order_id=order.id, tab=active_tab) }}"
+                      onsubmit="return confirm('确认撤销工单「{{ order.order_no }}」开工、回到「待开始」？\n已完成的工序、工时、领料与质量记录都会保留，可调整工序后重新开工。');">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button class="btn btn-outline-warning" type="submit" title="回到待开始以调整工序">
+                        <i class="bi bi-arrow-counterclockwise"></i> 撤销开工
+                    </button>
+                </form>
+            {% endif %}
             {% if order.status in ('pending', 'in_progress') %}
                 <form class="d-inline" method="POST"
-                      action="{{ url_for('production.order_plan_recalculate', order_id=order.id) }}"
+                      action="{{ url_for('production.order_plan_recalculate', order_id=order.id, tab=active_tab) }}"
                       onsubmit="return confirm('确认按当前交期/数量/工序重新倒排工单「{{ order.order_no }}」？将清除人工覆盖。');">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <button class="btn btn-outline-info" type="submit" title="重新倒排">
@@ -31,7 +41,7 @@
             <a class="btn btn-outline-primary" href="{{ url_for('production.order_edit', order_id=order.id) }}">编辑</a>
         {% endif %}
         {% if 'production.issue' in current_user|perm_codes and can_issue %}
-            <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#issueModal">
+            <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#issueModal" onclick="activateTab('info')">
                 <i class="bi bi-box-arrow-left"></i> 领料
             </button>
         {% endif %}
@@ -39,13 +49,46 @@
     </div>
 </div>
 
+<ul class="nav nav-tabs mb-3" id="orderDetailTabs" role="tablist">
+    <li class="nav-item" role="presentation">
+        <button class="nav-link {% if active_tab == 'info' %}active{% endif %}" id="tab-info"
+                data-bs-toggle="tab" data-bs-target="#pane-info" type="button" role="tab"
+                aria-controls="pane-info" aria-selected="{% if active_tab == 'info' %}true{% else %}false{% endif %}">
+            <i class="bi bi-file-earmark-text"></i> 工单资料
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link {% if active_tab == 'steps' %}active{% endif %}" id="tab-steps"
+                data-bs-toggle="tab" data-bs-target="#pane-steps" type="button" role="tab"
+                aria-controls="pane-steps" aria-selected="{% if active_tab == 'steps' %}true{% else %}false{% endif %}">
+            <i class="bi bi-list-check"></i> 工序
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link {% if active_tab == 'logs' %}active{% endif %}" id="tab-logs"
+                data-bs-toggle="tab" data-bs-target="#pane-logs" type="button" role="tab"
+                aria-controls="pane-logs" aria-selected="{% if active_tab == 'logs' %}true{% else %}false{% endif %}">
+            <i class="bi bi-clock-history"></i> 操作日志
+        </button>
+    </li>
+</ul>
+
+<div class="tab-content" id="orderDetailTabContent">
+<div class="tab-pane fade {% if active_tab == 'info' %}show active{% endif %}" id="pane-info" role="tabpanel" aria-labelledby="tab-info">
 <div class="card shadow-sm mb-3">
     <div class="card-header bg-white"><i class="bi bi-info-circle"></i> 工单信息</div>
     <div class="card-body">
         <div class="row">
-            <div class="col-md-3"><span class="text-muted">产品名称：</span>{{ order.product_name }}</div>
+            <div class="col-md-3"><span class="text-muted">产品名称：</span>{{ order.product_name }}
+                {% if bom_product %}<span class="badge bg-light text-dark border">{{ bom_product.code }}</span>{% endif %}
+            </div>
             <div class="col-md-2"><span class="text-muted">数量：</span>{{ order.quantity }}</div>
             <div class="col-md-2"><span class="text-muted">交期：</span>{{ order.due_date | fmt_date }}</div>
+            <div class="col-md-2"><span class="text-muted">客户：</span>
+                {% if order.customer_name %}
+                    {{ order.customer_name }}{% if order.customer %} <span class="badge bg-light text-dark border">{{ order.customer.code }}</span>{% endif %}
+                {% else %}-{% endif %}
+            </div>
             <div class="col-md-2"><span class="text-muted">负责人：</span>{{ order.leader.display_name() if order.leader else '-' }}</div>
             <div class="col-md-3"><span class="text-muted">创建：</span>{{ order.creator.display_name() if order.creator else '-' }} · {{ order.created_at | fmt_dt }}</div>
         </div>
@@ -67,6 +110,44 @@
     </div>
 </div>
 
+<!-- 标准用料 BOM：来自产品档案，仅作领料参考，不自动生成单据或扣库存 -->
+<div class="card shadow-sm mb-3">
+    <div class="card-header bg-white d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-list-ul"></i> 标准用料（BOM）
+            {% if bom_product %}<small class="text-muted">· {{ bom_product.code }} {{ bom_product.name }}</small>{% endif %}
+        </span>
+        <span class="badge bg-light text-dark border">本单数量 {{ order.quantity }}</span>
+    </div>
+    <div class="card-body p-0">
+        {% if bom_rows %}
+            <table class="table table-sm table-hover mb-0 align-middle">
+                <thead class="table-light">
+                <tr><th>物料编码</th><th>物料名称</th><th>规格</th><th>单件用量</th><th>本单需求</th></tr>
+                </thead>
+                <tbody>
+                {% for row in bom_rows %}
+                    <tr>
+                        <td>{{ row.code }}</td>
+                        <td>{{ row.name }}</td>
+                        <td>{{ row.spec or '-' }}</td>
+                        <td>{{ '%.2f'|format(row.quantity) }} {{ row.unit }}</td>
+                        <td class="fw-bold">{{ '%.2f'|format(row.total) }} {{ row.unit }}</td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            <div class="p-3 text-center text-muted small">
+                {% if bom_product %}
+                    该产品暂未维护 BOM 用料，可到「生产管理 → 产品档案」补充
+                {% else %}
+                    工单未关联产品档案（历史产品名称：{{ order.product_name }}）
+                {% endif %}
+            </div>
+        {% endif %}
+    </div>
+</div>
+
 <!-- 质量记录（P2-6）：进行中/已完成工单可记录，待开始仅为计划态 -->
 <div class="card shadow-sm mb-3">
     <div class="card-header bg-white d-flex justify-content-between align-items-center">
@@ -85,7 +166,7 @@
         {% if order.quality_remark %}<div class="mb-2"><span class="text-muted">质量备注：</span>{{ order.quality_remark }}</div>{% endif %}
         {% if can_record_quality and 'production.manage' in current_user|perm_codes %}
             <form method="POST" class="row g-2 border-top pt-3"
-                  action="{{ url_for('production.order_quality', order_id=order.id) }}">
+                  action="{{ url_for('production.order_quality', order_id=order.id, tab='info') }}">
                 {{ quality_form.hidden_tag() }}
                 <div class="col-md-2">
                     <label class="form-label">成品数量</label>
@@ -120,15 +201,49 @@
     </div>
 </div>
 
+<!-- 物料领用区（P1-05/P1-08）-->
+<div class="card shadow-sm mt-3">
+    <div class="card-header bg-white"><i class="bi bi-box-seam"></i> 物料领用（关联出库单）</div>
+    <div class="card-body p-0">
+        <table class="table table-hover mb-0 align-middle">
+            <thead class="table-light"><tr><th>单据号</th><th>物料</th><th>仓库</th><th>数量(单位)</th><th>经手人</th><th>时间</th></tr></thead>
+            <tbody>
+            {% for doc in issue_docs %}
+                <tr>
+                    <td><a href="{{ url_for('warehouse.doc_list') }}">{{ doc.doc_no }}</a></td>
+                    <td>{{ doc.material.name if doc.material else '-' }}</td>
+                    <td>{{ doc.warehouse.name if doc.warehouse else '-' }}</td>
+                    <td>
+                        {% if doc.unit_name and doc.input_quantity is not none %}
+                            {{ doc.input_quantity }} {{ doc.unit_name }}
+                            <div class="small text-muted">折合 {{ doc.quantity }}{% if doc.material and doc.material.unit %} {{ doc.material.unit }}{% endif %}</div>
+                        {% else %}
+                            {{ doc.quantity }}{% if doc.material and doc.material.unit %} {{ doc.material.unit }}{% endif %}
+                        {% endif %}
+                    </td>
+                    <td>{{ doc.handler.display_name() if doc.handler else '-' }}</td>
+                    <td>{{ doc.created_at | fmt_dt }}</td>
+                </tr>
+            {% else %}
+                <tr><td colspan="6" class="text-center text-muted py-3">暂无领料记录</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+</div><!-- /pane-info -->
+
+<div class="tab-pane fade {% if active_tab == 'steps' %}show active{% endif %}" id="pane-steps" role="tabpanel" aria-labelledby="tab-steps">
 {% if 'production.manage' in current_user|perm_codes %}
+    {% if order.status == 'pending' %}
     <div class="card shadow-sm mb-3">
         <div class="card-header bg-white"><i class="bi bi-plus-lg"></i> 添加工序
-            <span class="text-muted small ms-2">仅可从已维护工序档案中选择</span>
+            <span class="text-muted small ms-2">仅待开始工单可添加；开工后工序清单冻结</span>
             <a class="btn btn-sm btn-outline-secondary float-end" href="{{ url_for('production.process_list') }}">
                 <i class="bi bi-gear"></i> 维护工序档案</a>
         </div>
         <div class="card-body">
-            <form method="POST" class="row g-2" action="{{ url_for('production.step_new', order_id=order.id) }}">
+            <form method="POST" class="row g-2" action="{{ url_for('production.step_new', order_id=order.id, tab='steps') }}">
                 {{ step_form.hidden_tag() }}
                 <div class="col-md-4">
                     {{ step_form.process_id.label(class="form-label") }}
@@ -154,6 +269,12 @@
             </form>
         </div>
     </div>
+    {% else %}
+    <div class="alert alert-light border small py-2 mb-3">
+        <i class="bi bi-lock"></i> 工单当前为「{{ status_labels.get(order.status, order.status) }}」状态，
+        工序清单已冻结，不能添加或删除工序；如需调整请由管理员撤销开工回到「待开始」。
+    </div>
+    {% endif %}
 {% endif %}
 
 <div class="card shadow-sm">
@@ -192,7 +313,7 @@
                             <div>
                                 {% set step_next = step.next_status() %}
                                 {% if can_run_steps and step_next %}
-                                    <form class="d-inline" method="POST" action="{{ url_for('production.step_status', step_id=step.id) }}">
+                                    <form class="d-inline" method="POST" action="{{ url_for('production.step_status', step_id=step.id, tab='steps') }}">
                                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                         <input type="hidden" name="status" value="{{ step_next }}">
                                         <button class="btn btn-sm btn-outline-primary" type="submit">→ {{ step.STATUS_LABELS[step_next] }}</button>
@@ -204,7 +325,7 @@
                                             title="修正实际消耗工时">修工时</button>
                                 {% endif %}
                                 {% if step.status == 'pending' and order.status != 'in_progress' %}
-                                    <form class="d-inline" method="POST" action="{{ url_for('production.step_delete', step_id=step.id) }}"
+                                    <form class="d-inline" method="POST" action="{{ url_for('production.step_delete', step_id=step.id, tab='steps') }}"
                                           onsubmit="return confirm('删除该工序？可在回收站恢复。');">
                                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                         <button class="btn btn-sm btn-outline-danger" type="submit">删除</button>
@@ -224,13 +345,15 @@
     </div>
 </div>
 
+</div><!-- /pane-steps -->
+
 {% if 'production.manage' in current_user|perm_codes %}
     {% for step in order.steps %}
         {% if can_run_steps and step.status == 'completed' %}
 <div class="modal fade" id="laborModal{{ step.id }}" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-sm">
     <div class="modal-content">
-      <form method="POST" action="{{ url_for('production.step_labor', step_id=step.id) }}">
+      <form method="POST" action="{{ url_for('production.step_labor', step_id=step.id, tab='steps') }}">
         {{ labor_form.hidden_tag() }}
         <div class="modal-header"><h5 class="modal-title">修正工时 · {{ step.name }}</h5>
             <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
@@ -261,30 +384,7 @@
     {% endfor %}
 {% endif %}
 
-<!-- 物料领用区（P1-05/P1-08）-->
-<div class="card shadow-sm mt-3">
-    <div class="card-header bg-white"><i class="bi bi-box-seam"></i> 物料领用（关联出库单）</div>
-    <div class="card-body p-0">
-        <table class="table table-hover mb-0 align-middle">
-            <thead class="table-light"><tr><th>单据号</th><th>物料</th><th>仓库</th><th>数量(单位)</th><th>经手人</th><th>时间</th></tr></thead>
-            <tbody>
-            {% for doc in issue_docs %}
-                <tr>
-                    <td><a href="{{ url_for('warehouse.doc_list') }}">{{ doc.doc_no }}</a></td>
-                    <td>{{ doc.material.name if doc.material else '-' }}</td>
-                    <td>{{ doc.warehouse.name if doc.warehouse else '-' }}</td>
-                    <td>{{ doc.quantity }}{% if doc.material and doc.material.unit %} {{ doc.material.unit }}{% endif %}</td>
-                    <td>{{ doc.handler.display_name() if doc.handler else '-' }}</td>
-                    <td>{{ doc.created_at | fmt_dt }}</td>
-                </tr>
-            {% else %}
-                <tr><td colspan="6" class="text-center text-muted py-3">暂无领料记录</td></tr>
-            {% endfor %}
-            </tbody>
-        </table>
-    </div>
-</div>
-
+<div class="tab-pane fade {% if active_tab == 'logs' %}show active{% endif %}" id="pane-logs" role="tabpanel" aria-labelledby="tab-logs">
 <!-- 操作日志页签（P1-06，复用 OperationLog）-->
 <div class="card shadow-sm mt-3">
     <div class="card-header bg-white"><i class="bi bi-clock-history"></i> 操作日志</div>
@@ -305,18 +405,26 @@
     </div>
 </div>
 
+</div><!-- /pane-logs -->
+</div><!-- /tab-content -->
+
 <!-- 领料弹窗（P1-05）-->
 {% if 'production.issue' in current_user|perm_codes and can_issue %}
 <div class="modal fade" id="issueModal" tabindex="-1" aria-labelledby="issueModalLabel" aria-hidden="true">
   <div class="modal-dialog">
     <div class="modal-content">
-      <form method="POST" action="{{ url_for('production.order_issue', order_id=order.id) }}">
+      <form method="POST" action="{{ url_for('production.order_issue', order_id=order.id, tab='info') }}">
         {{ issue_form.hidden_tag() }}
         <div class="modal-header"><h5 class="modal-title" id="issueModalLabel">工单领料</h5>
             <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
         <div class="modal-body">
             <div class="mb-3"><label class="form-label">仓库</label>{{ issue_form.warehouse_id(class='form-select', id='issueWarehouse') }}</div>
             <div class="mb-3"><label class="form-label">物料</label>{{ issue_form.material_id(class='form-select', id='issueMaterial') }}</div>
+            <div class="mb-3">
+                <label class="form-label" for="issueUnit">单位</label>
+                {{ issue_form.unit_id(class='form-select', id='issueUnit') }}
+                <div class="form-text" id="issueUnitHint">默认按物料基本单位领用</div>
+            </div>
             <div class="alert alert-light border mb-3 py-2" id="stockInfo">
                 <i class="bi bi-info-circle"></i> 选择仓库和物料后显示当前可用余量
             </div>
@@ -338,6 +446,8 @@
 (function () {
     var wh = document.getElementById('issueWarehouse');
     var mat = document.getElementById('issueMaterial');
+    var unitSel = document.getElementById('issueUnit');
+    var unitHint = document.getElementById('issueUnitHint');
     var qty = document.getElementById('issueQuantity');
     var qtyLabel = document.getElementById('issueQuantityLabel');
     var info = document.getElementById('stockInfo');
@@ -345,13 +455,27 @@
     var submit = document.getElementById('issueSubmit');
     if (!wh || !mat || !qty || !info) { return; }
     var available = null;
-    var unitText = '';  // 当前物料单位（含前导空格），无单位时不拼接，避免孤立空格
+    var baseUnit = '';
+    var unitName = '';
+    var factor = 1;
 
+    function fmt(n) {
+        if (Math.abs(n - Math.round(n)) < 0.000001) { return String(Math.round(n)); }
+        return String(Math.round(n * 100) / 100);
+    }
+    function baseQty() {
+        var n = parseInt(qty.value, 10);
+        if (isNaN(n) || n <= 0) { return 0; }
+        return n * factor;
+    }
     function check() {
         if (available === null) { return; }
         var n = parseInt(qty.value, 10);
-        if (!isNaN(n) && n > available) {
-            warn.textContent = '库存不足：当前仅 ' + available + unitText + '，还差 ' + (n - available) + unitText;
+        var b = baseQty();
+        if (!isNaN(n) && n > 0 && b > available) {
+            warn.textContent = '库存不足：当前仅 ' + fmt(available / factor) +
+                (unitName ? ' ' + unitName : '') + '，本次领用折合 ' + fmt(b) +
+                ' ' + (baseUnit || '基本单位');
             warn.style.display = 'block';
             if (submit) { submit.disabled = true; }
         } else {
@@ -359,39 +483,77 @@
             if (submit) { submit.disabled = false; }
         }
     }
-
+    function refreshUnitText() {
+        if (qtyLabel) {
+            qtyLabel.textContent = '数量（' + (unitName || baseUnit || '基本单位') + '）';
+        }
+        if (unitHint) {
+            unitHint.textContent = factor === 1
+                ? '默认按物料基本单位（' + (baseUnit || '-') + '）领用'
+                : '换算：1 ' + unitName + ' = ' + fmt(factor) + ' ' + (baseUnit || '基本单位');
+        }
+        if (available !== null) {
+            info.innerHTML = '<i class="bi bi-box-seam"></i> 【' +
+                (wh.options[wh.selectedIndex] ? wh.options[wh.selectedIndex].text : '') + ' / ' +
+                (mat.options[mat.selectedIndex] ? mat.options[mat.selectedIndex].text : '') +
+                '】当前可用余量：<strong>' + fmt(available / factor) + '</strong>' +
+                (unitName ? ' ' + unitName : '') +
+                '（基本单位余量 ' + available + ' ' + (baseUnit || '') + '）';
+        }
+        check();
+    }
+    function updateUnit() {
+        var opt = unitSel && unitSel.options[unitSel.selectedIndex];
+        factor = opt ? parseFloat(opt.getAttribute('data-factor') || '1') : 1;
+        unitName = (opt && opt.value !== '0') ? opt.textContent : '';
+        refreshUnitText();
+    }
+    function populateUnits(d) {
+        if (!unitSel) { return; }
+        var current = unitSel.value;
+        while (unitSel.options.length) { unitSel.remove(0); }
+        var base = document.createElement('option');
+        base.value = '0';
+        base.textContent = '-- 基本单位（' + (d.base_unit || '-') + '）--';
+        base.setAttribute('data-factor', '1');
+        unitSel.appendChild(base);
+        (d.conversions || []).forEach(function (c) {
+            var op = document.createElement('option');
+            op.value = c.unit_id;
+            op.textContent = c.name;
+            op.setAttribute('data-factor', c.factor);
+            unitSel.appendChild(op);
+        });
+        unitSel.value = current || '0';
+        updateUnit();
+    }
     function loadStock() {
-        available = null;
-        unitText = '';
-        if (qtyLabel) { qtyLabel.textContent = '数量'; }
-        info.innerHTML = '<i class="bi bi-hourglass-split"></i> 正在查询余量…';
+        available = null; baseUnit = ''; unitName = ''; factor = 1;
+        if (info) { info.innerHTML = '<i class="bi bi-hourglass-split"></i> 正在查询余量…'; }
         if (submit) { submit.disabled = false; }
         warn.style.display = 'none';
         if (!wh.value || !mat.value) {
-            info.innerHTML = '<i class="bi bi-info-circle"></i> 选择仓库和物料后显示当前可用余量';
+            if (info) { info.innerHTML = '<i class="bi bi-info-circle"></i> 选择仓库和物料后显示当前可用余量'; }
             return;
         }
         fetch('{{ url_for("production.api_stock") }}?warehouse_id=' + wh.value + '&material_id=' + mat.value)
             .then(function (r) { return r.json(); })
             .then(function (d) {
-                if (d.ok) {
-                    available = d.available;
-                    unitText = d.unit ? ' ' + d.unit : '';
-                    if (qtyLabel) { qtyLabel.textContent = d.unit ? '数量(' + d.unit + ')' : '数量'; }
-                    info.innerHTML = '<i class="bi bi-box-seam"></i> 【' + d.warehouse + ' / ' +
-                        d.material + '】当前可用余量：<strong>' + d.available + '</strong>' + unitText;
-                    check();
-                } else {
-                    info.innerHTML = '<i class="bi bi-exclamation-triangle"></i> ' + d.message;
+                if (!d.ok) {
+                    if (info) { info.innerHTML = '<i class="bi bi-exclamation-triangle"></i> ' + d.message; }
+                    return;
                 }
+                available = d.available;
+                baseUnit = d.unit || '';
+                populateUnits(d);
             })
             .catch(function () {
-                info.innerHTML = '<i class="bi bi-exclamation-triangle"></i> 余量查询失败，提交时仍会服务端校验';
+                if (info) { info.innerHTML = '<i class="bi bi-exclamation-triangle"></i> 余量查询失败，提交时仍会服务端校验'; }
             });
     }
-
-    wh.addEventListener('change', loadStock);
-    mat.addEventListener('change', loadStock);
+    if (wh) { wh.addEventListener('change', loadStock); }
+    if (mat) { mat.addEventListener('change', loadStock); }
+    if (unitSel) { unitSel.addEventListener('change', updateUnit); }
     qty.addEventListener('input', check);
     qty.addEventListener('change', check);
     loadStock();
@@ -407,5 +569,32 @@ function syncQualityOutput() {
     if (isNaN(good) && isNaN(defect)) { output.value = ''; return; }
     output.value = (isNaN(good) ? 0 : good) + (isNaN(defect) ? 0 : defect);
 }
+</script>
+<script>
+(function () {
+    var VALID = ['info', 'steps', 'logs'];
+    function normalize(name) { return VALID.indexOf(name) >= 0 ? name : 'info'; }
+    function setUrl(name) {
+        if (!window.history || !history.replaceState) { return; }
+        var url = new URL(window.location.href);
+        url.searchParams.set('tab', name);
+        history.replaceState(null, '', url.toString());
+    }
+    function activateTab(name) {
+        name = normalize(name);
+        var btn = document.getElementById('tab-' + name);
+        if (btn && window.bootstrap) { new bootstrap.Tab(btn).show(); }
+        setUrl(name);
+    }
+    window.activateTab = activateTab;
+    var initial = new URLSearchParams(window.location.search).get('tab');
+    if (initial && normalize(initial) !== initial) { setUrl(normalize(initial)); }
+    if (initial && normalize(initial) !== 'info') { activateTab(initial); }
+    document.querySelectorAll('#orderDetailTabs .nav-link').forEach(function (link) {
+        link.addEventListener('shown.bs.tab', function (e) {
+            setUrl(e.target.id.replace('tab-', ''));
+        });
+    });
+})();
 </script>
 {% endblock %}

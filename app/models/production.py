@@ -1,9 +1,63 @@
-"""生产模型：工序档案、工单与工序行项（状态机流转）。"""
+"""生产模型：产品档案/BOM、工序档案、工艺路线、工单与工序行项（状态机流转）。"""
 from datetime import datetime
 
 from app import db
 from app.models.mixins import SoftDeleteMixin
 from app.utils.time_utils import now
+
+
+class Product(SoftDeleteMixin, db.Model):
+    """产品档案（主数据）：统一维护产品编号/名称/规格/单位，工单只引用不手输。
+
+    历史工单的 product_name 是名称快照（与工序名快照同口径），产品改名不影响历史；
+    编码/名称唯一性只在应用层校验未删除记录，软删后允许重建同编码产品。
+    """
+    __tablename__ = 'products'
+
+    id = db.Column(db.Integer, primary_key=True)
+    code = db.Column(db.String(32), nullable=False, comment='产品编号，如 PRD001')
+    name = db.Column(db.String(128), nullable=False, comment='产品名称，如 圣诞树')
+    spec = db.Column(db.String(128), nullable=False, default='', comment='规格型号')
+    unit = db.Column(db.String(16), nullable=False, default='个', comment='计量单位')
+    is_active = db.Column(db.Boolean, nullable=False, default=True, comment='是否启用')
+    remark = db.Column(db.String(255), nullable=False, default='', comment='备注')
+    created_at = db.Column(db.DateTime, nullable=False, default=now, comment='创建时间')
+
+    bom_items = db.relationship('BomItem', backref='product',
+                                cascade='all, delete-orphan', lazy='selectin')
+
+    def __repr__(self) -> str:
+        return '<Product %s %s>' % (self.code, self.name)
+
+
+class BomItem(SoftDeleteMixin, db.Model):
+    """BOM 用料明细：产品→物料→单件用量（一层，不做多级 BOM）。
+
+    unit 是建档时从物料档案复制的**单位快照**，物料后续改单位不会误读历史用量。
+    第一版只作为标准用料参考视图：不自动生成领料单、不扣减库存、不做齐套检查。
+    明细随产品整体物理替换；软删/恢复产品时同步标记，避免已删产品占用物料引用。
+    """
+    __tablename__ = 'bom_items'
+    __table_args__ = (
+        db.UniqueConstraint('product_id', 'material_id', name='uq_bom_product_material'),
+        db.Index('ix_bom_item_material', 'material_id'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    product_id = db.Column(db.Integer, db.ForeignKey('products.id', ondelete='CASCADE'),
+                           nullable=False, comment='所属产品')
+    material_id = db.Column(db.Integer, db.ForeignKey('materials.id'),
+                            nullable=False, comment='引用的物料档案')
+    quantity = db.Column(db.Float, nullable=False, default=1,
+                         comment='单件标准用量（允许小数，如 0.5 米）')
+    unit = db.Column(db.String(16), nullable=False, default='', comment='单位快照（取自物料档案）')
+    remark = db.Column(db.String(255), nullable=False, default='', comment='备注')
+
+    material = db.relationship('Material')
+
+    def __repr__(self) -> str:
+        return '<BomItem product=%s material=%s qty=%s>' % (
+            self.product_id, self.material_id, self.quantity)
 
 
 class Process(SoftDeleteMixin, db.Model):
@@ -49,6 +103,65 @@ class DefectReason(SoftDeleteMixin, db.Model):
         return '<DefectReason %s %s>' % (self.code, self.name)
 
 
+class ProcessRoute(SoftDeleteMixin, db.Model):
+    """工艺路线（工序组）：把固定工序按顺序预先组合，工单新建时可一键批量生成工序步骤。
+
+    典型例子：产品「圣诞树」= 下料→机加工→组装→质检→包装，维护为一条路线。
+    路线本身可软删/停用；明细随路线整体替换，不单独暴露在回收站。
+    """
+    __tablename__ = 'process_routes'
+
+    id = db.Column(db.Integer, primary_key=True)
+    # 唯一性只校验未删除记录（与工序/不良原因口径一致）
+    code = db.Column(db.String(32), nullable=False, comment='路线编码，如 RT01')
+    name = db.Column(db.String(64), nullable=False, comment='路线名称，如 圣诞树工艺路线')
+    product_name = db.Column(db.String(128), nullable=False, default='',
+                             comment='适用产品名称快照（关联产品时自动带出，历史数据保留文本）')
+    product_id = db.Column(db.Integer, db.ForeignKey('products.id'), nullable=True,
+                           comment='关联产品档案（可空，历史路线保留）')
+    is_active = db.Column(db.Boolean, nullable=False, default=True, comment='是否启用')
+    remark = db.Column(db.String(255), nullable=False, default='', comment='备注')
+    created_at = db.Column(db.DateTime, nullable=False, default=now, comment='创建时间')
+
+    items = db.relationship('ProcessRouteItem', backref='route',
+                            order_by='ProcessRouteItem.seq',
+                            cascade='all, delete-orphan', lazy='selectin')
+    product = db.relationship('Product', foreign_keys=[product_id])
+
+    def step_names(self) -> list:
+        """按顺序列出工序名（列表/下拉提示复用）。"""
+        return [item.process.name if item.process else '#' + str(item.process_id)
+                for item in self.items]
+
+    def __repr__(self) -> str:
+        return '<ProcessRoute %s %s>' % (self.code, self.name)
+
+
+class ProcessRouteItem(SoftDeleteMixin, db.Model):
+    """工艺路线明细：引用工序档案 + 顺序号；同一路线内顺序号唯一。
+
+    随路线一起软删/恢复，避免已删除路线继续占用工序引用；编辑路线时物理替换明细。
+    """
+    __tablename__ = 'process_route_items'
+    __table_args__ = (
+        db.UniqueConstraint('route_id', 'seq', name='uq_process_route_item_route_seq'),
+        db.Index('ix_process_route_item_process', 'process_id'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    route_id = db.Column(db.Integer, db.ForeignKey('process_routes.id', ondelete='CASCADE'),
+                         nullable=False, comment='所属工艺路线')
+    process_id = db.Column(db.Integer, db.ForeignKey('processes.id'),
+                           nullable=False, comment='引用的工序档案')
+    seq = db.Column(db.Integer, nullable=False, comment='工序顺序号，从1开始')
+
+    process = db.relationship('Process')
+
+    def __repr__(self) -> str:
+        return '<ProcessRouteItem route=%s process=%s seq=%s>' % (
+            self.route_id, self.process_id, self.seq)
+
+
 class WorkOrder(SoftDeleteMixin, db.Model):
     """生产工单。状态机：pending→in_progress→completed→accepted（仅允许相邻流转）。"""
     __tablename__ = 'work_orders'
@@ -71,7 +184,13 @@ class WorkOrder(SoftDeleteMixin, db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     order_no = db.Column(db.String(32), unique=True, nullable=False, comment='单号 WO+日期+序号')
-    product_name = db.Column(db.String(128), nullable=False, comment='产品名称')
+    product_name = db.Column(db.String(128), nullable=False, comment='产品名称快照（引用产品时自动带出）')
+    product_id = db.Column(db.Integer, db.ForeignKey('products.id'), nullable=True,
+                           comment='关联产品档案（可空，历史工单保留自由文本）')
+    customer_id = db.Column(db.Integer, db.ForeignKey('customers.id'), nullable=True,
+                            comment='关联客户档案（可空，历史工单可为空）')
+    customer_name = db.Column(db.String(128), nullable=False, default='',
+                              comment='客户名称快照（引用客户时自动带出）')
     quantity = db.Column(db.Integer, nullable=False, default=1, comment='数量')
     due_date = db.Column(db.Date, nullable=True, comment='交期')
     # L1 轻量排产：倒排计划字段（计算全部留在 scheduling_service）
@@ -105,6 +224,8 @@ class WorkOrder(SoftDeleteMixin, db.Model):
 
     leader = db.relationship('User', foreign_keys=[leader_id])
     creator = db.relationship('User', foreign_keys=[created_by])
+    product = db.relationship('Product', foreign_keys=[product_id])
+    customer = db.relationship('Customer', foreign_keys=[customer_id])
     department = db.relationship('Department', foreign_keys=[related_department_id])
     defect_reason = db.relationship('DefectReason', foreign_keys=[defect_reason_id])
     quality_recorder = db.relationship('User', foreign_keys=[quality_recorded_by])
@@ -130,6 +251,7 @@ class WorkOrder(SoftDeleteMixin, db.Model):
             raise ValueError('数量不能为负数')
         if good_qty + defect_qty != output_qty:
             raise ValueError('良品数量 + 不良数量必须等于成品数量')
+        # 仅不良数量非 0 时要求原因；全良品（不良=0）时原因必须允许为空
         if defect_qty > 0 and not reason_id:
             raise ValueError('存在不良品时必须选择不良原因')
         self.output_qty = output_qty

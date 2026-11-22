@@ -9,10 +9,10 @@
                 <form class="row g-2 mb-3" method="GET">
                     <div class="col-md-9">
                         <input class="form-control" type="text" name="keyword" value="{{ keyword }}"
-                               placeholder="搜索仓库名称 / 位置">
+                               placeholder="查询仓库名称 / 位置">
                     </div>
                     <div class="col-auto">
-                        <button class="btn btn-outline-primary" type="submit"><i class="bi bi-search"></i> 搜索</button>
+                        <button class="btn btn-outline-primary" type="submit"><i class="bi bi-search"></i> 查询</button>
                         <a class="btn btn-outline-secondary" href="{{ url_for('warehouse.warehouse_list') }}">重置</a>
                     </div>
                 </form>

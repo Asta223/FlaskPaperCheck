@@ -7,9 +7,11 @@ ZERO_CHOICE = (0, '-- 无 --')
 
 
 def fill_warehouse_doc_choices(form) -> None:
-    """运行时填充：仓库/物料/关联工单下拉。"""
+    """运行时填充：仓库/物料/关联工单/供应商下拉。"""
     from app.models.material import Material
+    from app.models.partner import Supplier
     from app.models.production import WorkOrder
+    from app.models.unit import Unit
     from app.models.warehouse import Warehouse
     form.warehouse_id.choices = [
         (w.id, w.name) for w in Warehouse.query.filter_by(is_active=True).order_by(Warehouse.id).all()
@@ -24,6 +26,15 @@ def fill_warehouse_doc_choices(form) -> None:
     form.related_order_id.choices = [ZERO_CHOICE] + [
         (o.id, '%s（%s）' % (o.order_no, o.product_name)) for o in open_orders
     ]
+    if hasattr(form, 'unit_id'):
+        form.unit_id.choices = [ZERO_CHOICE] + [
+            (u.id, u.name) for u in Unit.query.filter_by(is_active=True).order_by(Unit.code).all()
+        ]
+    if hasattr(form, 'supplier_id'):
+        form.supplier_id.choices = [ZERO_CHOICE] + [
+            (s.id, '%s %s' % (s.code, s.name))
+            for s in Supplier.query.filter_by(is_active=True).order_by(Supplier.code).all()
+        ]
 
 
 class WarehouseForm(FlaskForm):
@@ -44,7 +55,9 @@ class StockDocForm(FlaskForm):
     quantity = IntegerField('数量', validators=[
         DataRequired(message='请输入数量'), NumberRange(min=1, message='数量必须大于0'),
     ])
+    unit_id = SelectField('单位', coerce=int, validators=[Optional()], default=0)
     related_order_id = SelectField('关联工单', coerce=int, validators=[Optional()])
+    supplier_id = SelectField('供应商（仅入库）', coerce=int, validators=[Optional()], default=0)
     remark = StringField('备注', validators=[Optional(), Length(max=255)])
     submit = SubmitField('提交单据')
 

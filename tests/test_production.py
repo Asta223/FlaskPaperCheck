@@ -106,9 +106,9 @@ def test_full_valid_chain_then_terminal(client):
         assert resp.status_code == 200
         db.session.expire_all()
         assert WorkOrder.query.get(order.id).status == target
-    # 终态：无下一状态
+    # 终态：详情页已无表单，改从新建工单页取同会话通用 token
     assert WorkOrder.query.get(order.id).next_status() is None
-    token = get_csrf(client, '/production/orders/%d' % order.id)
+    token = get_csrf(client, '/production/orders/new')
     resp = client.post('/production/orders/%d/status' % order.id,
                        data={'csrf_token': token, 'status': 'pending'},
                        follow_redirects=True)

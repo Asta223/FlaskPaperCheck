@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+{% block title %}工艺路线 - 工厂管理系统{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h4 class="mb-0"><i class="bi bi-diagram-3"></i> 工艺路线</h4>
+    <span class="text-muted small">预先把工序按生产顺序组合成组，新建工单时可一键批量添加</span>
+</div>
+
+<div class="row">
+    <div class="col-lg-5">
+        <div class="card shadow-sm mb-3">
+            <div class="card-header bg-white">
+                <i class="bi bi-plus-lg"></i> {{ '编辑工艺路线' if route else '新增工艺路线' }}
+            </div>
+            <div class="card-body">
+                {% if 'production.route.manage' in current_user|perm_codes %}
+                    <form method="POST" class="row g-3"
+                          action="{{ url_for('production.process_route_edit', route_id=route.id) if route else url_for('production.process_route_new') }}">
+                        {{ form.hidden_tag() }}
+                        <div class="col-md-6">
+                            {{ form.code.label(class="form-label") }}
+                            {{ form.code(class="form-control", placeholder="如 RT01") }}
+                            {% for err in form.code.errors %}<div class="text-danger small">{{ err }}</div>{% endfor %}
+                        </div>
+                        <div class="col-md-6">
+                            {{ form.name.label(class="form-label") }}
+                            {{ form.name(class="form-control", placeholder="如 圣诞树工艺路线") }}
+                            {% for err in form.name.errors %}<div class="text-danger small">{{ err }}</div>{% endfor %}
+                        </div>
+                        <div class="col-md-6">
+                            {{ form.product_id.label(class="form-label") }}
+                            {{ form.product_id(class="form-select") }}
+                            <div class="form-text">选择产品后自动带出名称；新建工单时可按产品自动推荐本路线。</div>
+                        </div>
+                        <div class="col-md-6">
+                            {{ form.remark.label(class="form-label") }}
+                            {{ form.remark(class="form-control") }}
+                        </div>
+                        <div class="col-12">
+                            <hr class="my-1">
+                            <div class="form-text mb-2">
+                                <i class="bi bi-info-circle"></i> 勾选工序并填写顺序号；保存后按序号从小到大排列，工单批量添加时沿用该顺序。
+                            </div>
+                            <div class="table-responsive" style="max-height:34vh;overflow-y:auto;">
+                                <table class="table table-sm table-hover mb-0 align-middle">
+                                    <thead class="table-light">
+                                    <tr><th style="width:44px;">选择</th><th>工序</th><th style="width:100px;">顺序号</th></tr>
+                                    </thead>
+                                    <tbody>
+                                    {% for p in processes %}
+                                        <tr>
+                                            <td>
+                                                <input class="form-check-input" type="checkbox" name="process_ids"
+                                                       value="{{ p.id }}" id="proc_{{ p.id }}"
+                                                       {% if p.id in selected %}checked{% endif %}>
+                                            </td>
+                                            <td>
+                                                <label class="form-check-label small" for="proc_{{ p.id }}">
+                                                    {{ p.code }} {{ p.name }}
+                                                    {% if p.standard_hours %}<span class="text-muted">（{{ '%.2f'|format(p.standard_hours) }}h）</span>{% endif %}
+                                                </label>
+                                            </td>
+                                            <td>
+                                                <input class="form-control form-control-sm" type="number" min="1"
+                                                       name="seq_{{ p.id }}" value="{{ selected.get(p.id, loop.index) }}">
+                                            </td>
+                                        </tr>
+                                    {% else %}
+                                        <tr><td colspan="3" class="text-center text-muted py-3">暂无启用工序，请先到工序档案维护</td></tr>
+                                    {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div class="col-12">
+                            {{ form.submit(class="btn btn-primary") }}
+                            {% if route %}
+                                <a class="btn btn-outline-secondary" href="{{ url_for('production.process_route_list') }}">取消编辑</a>
+                            {% endif %}
+                        </div>
+                    </form>
+                {% else %}
+                    <p class="text-muted mb-0">你没有工艺路线维护权限，只能查看列表。</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-7">
+        <div class="card shadow-sm">
+            <div class="card-header bg-white"><i class="bi bi-table"></i> 已维护路线（{{ routes|length }}）</div>
+            <div class="card-body p-0">
+                <table class="table table-hover mb-0 align-middle">
+                    <thead class="table-light">
+                    <tr><th>编码</th><th>路线名称</th><th>适用产品</th><th>工序顺序</th><th>状态</th><th class="text-end">操作</th></tr>
+                    </thead>
+                    <tbody>
+                    {% for r in routes %}
+                        <tr class="{% if not r.is_active %}text-muted{% endif %}">
+                            <td>{{ r.code }}</td>
+                            <td class="fw-bold">{{ r.name }}</td>
+                            <td>{{ r.product_name or '-' }}</td>
+                            <td>
+                                {% for item in r.items %}
+                                    <span class="badge bg-light text-dark border">{{ item.seq }}. {{ item.process.name if item.process else '#' ~ item.process_id }}</span>
+                                {% else %}
+                                    <span class="text-muted small">未配置工序</span>
+                                {% endfor %}
+                            </td>
+                            <td>
+                                {% if r.is_active %}<span class="badge bg-success">启用</span>
+                                {% else %}<span class="badge bg-secondary">停用</span>{% endif %}
+                            </td>
+                            <td class="text-end">
+                                {% if 'production.route.manage' in current_user|perm_codes %}
+                                    <a class="btn btn-sm btn-outline-primary"
+                                       href="{{ url_for('production.process_route_list', edit_id=r.id) }}">编辑</a>
+                                    <form class="d-inline" method="POST"
+                                          action="{{ url_for('production.process_route_toggle', route_id=r.id) }}">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                        <button class="btn btn-sm btn-outline-warning" type="submit">
+                                            {{ '启用' if not r.is_active else '停用' }}
+                                        </button>
+                                    </form>
+                                    <form class="d-inline" method="POST"
+                                          action="{{ url_for('production.process_route_delete', route_id=r.id) }}"
+                                          onsubmit="return confirm('删除工艺路线「{{ r.name }}」？可在回收站恢复。');">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                        <button class="btn btn-sm btn-outline-danger" type="submit" title="删除（可在回收站恢复）">
+                                            <i class="bi bi-trash3"></i>
+                                        </button>
+                                    </form>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% else %}
+                        <tr><td colspan="6" class="text-center text-muted py-3">暂无工艺路线，请在左侧新增</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

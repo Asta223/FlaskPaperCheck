@@ -1,22 +1,320 @@
 """仓库路由：仓库档案、出入库单据、库存查询（阈值标红）。"""
-from flask import Blueprint, flash, redirect, render_template, request, url_for
+from flask import Blueprint, flash, jsonify, redirect, render_template, request, url_for
 from flask_login import current_user, login_required
 from sqlalchemy import or_
 
 from app import db
+from app.forms.partner import SupplierForm
+from app.forms.unit import UnitForm, UnitConversionForm, fill_unit_conversion_choices
 from app.forms.warehouse import InventoryThresholdForm, StockDocForm, WarehouseForm, \
     fill_warehouse_doc_choices
 from app.models.ledger import StockLedger
 from app.models.material import Material
+from app.models.partner import Supplier
+from app.models.unit import Unit, UnitConversion
 from app.models.warehouse import Inventory, StockDocument, Warehouse
 from app.services.inventory_service import InsufficientStockError, InventoryServiceError, \
     apply_stock_document, reverse_stock_document
+from app.services.unit_service import UnitConversionError, base_unit_of
 from app.services.log_service import log_operation
 from app.services.soft_delete_service import mark_deleted
+from app.utils.delete_guard import find_references, format_references
 from app.utils.permissions import permission_required
 from app.utils.time_utils import today
 
 bp = Blueprint('warehouse', __name__, url_prefix='/warehouse')
+
+
+# ---------------- 供应商档案（入库单的送货方）----------------
+
+def _duplicate_supplier(code, name, exclude_id=None):
+    query = Supplier.query.filter((Supplier.code == code) | (Supplier.name == name))
+    if exclude_id:
+        query = query.filter(Supplier.id != exclude_id)
+    return query.first()
+
+
+@bp.route('/suppliers')
+@login_required
+@permission_required('warehouse.view')
+def supplier_list():
+    edit_id = request.args.get('edit_id', type=int)
+    supplier = db.session.get(Supplier, edit_id) if edit_id else None
+    form = SupplierForm(obj=supplier)
+    suppliers = Supplier.query.order_by(Supplier.code, Supplier.id).all()
+    return render_template('warehouse/supplier_list.html', form=form, supplier=supplier,
+                           suppliers=suppliers)
+
+
+@bp.route('/suppliers/new', methods=['POST'])
+@login_required
+@permission_required('warehouse.supplier.manage')
+def supplier_new():
+    form = SupplierForm()
+    if not form.validate_on_submit():
+        flash('供应商档案表单校验失败', 'danger')
+        return redirect(url_for('warehouse.supplier_list'))
+    code, name = form.code.data.strip(), form.name.data.strip()
+    if _duplicate_supplier(code, name):
+        flash('供应商编号或名称已存在', 'danger')
+        return redirect(url_for('warehouse.supplier_list'))
+    supplier = Supplier(code=code, name=name, contact=(form.contact.data or '').strip(),
+                        phone=(form.phone.data or '').strip(),
+                        address=(form.address.data or '').strip(),
+                        tax_no=(form.tax_no.data or '').strip(), remark=form.remark.data or '')
+    db.session.add(supplier)
+    log_operation(module='warehouse', action='create', target_type='supplier',
+                  target_id=supplier.id, summary='创建供应商「%s」' % name)
+    db.session.commit()
+    flash('供应商「%s」已创建' % name, 'success')
+    return redirect(url_for('warehouse.supplier_list'))
+
+
+@bp.route('/suppliers/<int:supplier_id>/edit', methods=['POST'])
+@login_required
+@permission_required('warehouse.supplier.manage')
+def supplier_edit(supplier_id):
+    supplier = db.get_or_404(Supplier, supplier_id)
+    form = SupplierForm(obj=supplier)
+    if not form.validate_on_submit():
+        flash('供应商档案表单校验失败', 'danger')
+        return redirect(url_for('warehouse.supplier_list'))
+    code, name = form.code.data.strip(), form.name.data.strip()
+    if _duplicate_supplier(code, name, exclude_id=supplier.id):
+        flash('供应商编号或名称已存在', 'danger')
+        return redirect(url_for('warehouse.supplier_list'))
+    supplier.code = code
+    supplier.name = name
+    supplier.contact = (form.contact.data or '').strip()
+    supplier.phone = (form.phone.data or '').strip()
+    supplier.address = (form.address.data or '').strip()
+    supplier.tax_no = (form.tax_no.data or '').strip()
+    supplier.remark = form.remark.data or ''
+    log_operation(module='warehouse', action='update', target_type='supplier',
+                  target_id=supplier.id, summary='保存供应商「%s」' % name)
+    db.session.commit()
+    flash('供应商「%s」已保存' % name, 'success')
+    return redirect(url_for('warehouse.supplier_list'))
+
+
+@bp.route('/suppliers/<int:supplier_id>/toggle', methods=['POST'])
+@login_required
+@permission_required('warehouse.supplier.manage')
+def supplier_toggle(supplier_id):
+    supplier = db.get_or_404(Supplier, supplier_id)
+    supplier.is_active = not supplier.is_active
+    db.session.commit()
+    flash('供应商「%s」已%s' % (supplier.name, '启用' if supplier.is_active else '停用'),
+          'success' if supplier.is_active else 'warning')
+    return redirect(url_for('warehouse.supplier_list'))
+
+
+@bp.route('/suppliers/<int:supplier_id>/delete', methods=['POST'])
+@login_required
+@permission_required('warehouse.supplier.manage')
+def supplier_delete(supplier_id):
+    """软删供应商：历史单据靠名称快照/引用显示，不受影响。"""
+    supplier = db.get_or_404(Supplier, supplier_id)
+    name = supplier.name
+    mark_deleted(supplier, module='warehouse', target_type='supplier',
+                 summary='删除供应商「%s」，可在回收站恢复' % name)
+    flash('供应商「%s」已删除，可在系统管理→回收站恢复' % name, 'success')
+    return redirect(url_for('warehouse.supplier_list'))
+
+
+# ---------------- 计量单位档案与换算 ----------------
+
+def _duplicate_unit(code, name, exclude_id=None):
+    query = Unit.query.filter((Unit.code == code) | (Unit.name == name))
+    if exclude_id:
+        query = query.filter(Unit.id != exclude_id)
+    return query.first()
+
+
+def _duplicate_conversion(material_id, unit_id, exclude_id=None):
+    query = UnitConversion.query.filter_by(material_id=material_id, unit_id=unit_id)
+    if exclude_id:
+        query = query.filter(UnitConversion.id != exclude_id)
+    return query.first()
+
+
+@bp.route('/units')
+@login_required
+@permission_required('material.unit.manage')
+def unit_list():
+    """单位档案 + 物料换算关系：同页维护，均可软删/回收站恢复。"""
+    edit_id = request.args.get('edit_id', type=int)
+    conv_edit_id = request.args.get('conv_edit_id', type=int)
+    unit = db.session.get(Unit, edit_id) if edit_id else None
+    conv = db.session.get(UnitConversion, conv_edit_id) if conv_edit_id else None
+    form = UnitForm(obj=unit)
+    conv_form = UnitConversionForm(obj=conv)
+    fill_unit_conversion_choices(conv_form)
+    return render_template(
+        'warehouse/unit_list.html', form=form, unit=unit,
+        units=Unit.query.order_by(Unit.code, Unit.id).all(),
+        conv_form=conv_form, conv=conv,
+        conversions=UnitConversion.query.order_by(UnitConversion.id.desc()).all(),
+        dimension_labels=Unit.DIMENSION_LABELS)
+
+
+@bp.route('/units/new', methods=['POST'])
+@login_required
+@permission_required('material.unit.manage')
+def unit_new():
+    form = UnitForm()
+    if not form.validate_on_submit():
+        flash('单位表单校验失败：%s' % '；'.join(err for errs in form.errors.values()
+                                          for err in errs), 'danger')
+        return redirect(url_for('warehouse.unit_list'))
+    code = form.code.data.strip()
+    name = form.name.data.strip()
+    if _duplicate_unit(code, name):
+        flash('单位编码或名称已存在：%s / %s' % (code, name), 'danger')
+        return redirect(url_for('warehouse.unit_list'))
+    unit = Unit(code=code, name=name, dimension=form.dimension.data,
+                remark=form.remark.data or '')
+    db.session.add(unit)
+    log_operation(module='material', action='create', target_type='unit',
+                  target_id=unit.id, summary='创建计量单位「%s」' % name)
+    db.session.commit()
+    flash('单位「%s」已新增' % name, 'success')
+    return redirect(url_for('warehouse.unit_list'))
+
+
+@bp.route('/units/<int:unit_id>/edit', methods=['POST'])
+@login_required
+@permission_required('material.unit.manage')
+def unit_edit(unit_id):
+    unit = db.get_or_404(Unit, unit_id)
+    form = UnitForm(obj=unit)
+    if not form.validate_on_submit():
+        flash('单位表单校验失败：%s' % '；'.join(err for errs in form.errors.values()
+                                          for err in errs), 'danger')
+        return redirect(url_for('warehouse.unit_list'))
+    code = form.code.data.strip()
+    name = form.name.data.strip()
+    if _duplicate_unit(code, name, exclude_id=unit.id):
+        flash('单位编码或名称已存在：%s / %s' % (code, name), 'danger')
+        return redirect(url_for('warehouse.unit_list'))
+    old_name = unit.name
+    unit.code = code
+    unit.name = name
+    unit.dimension = form.dimension.data
+    unit.remark = form.remark.data or ''
+    log_operation(module='material', action='update', target_type='unit',
+                  target_id=unit.id, summary='保存计量单位「%s」' % name)
+    db.session.commit()
+    flash('单位%s已保存' % ('「%s」→「%s」' % (old_name, name) if old_name != name
+                        else '「%s」' % name), 'success')
+    return redirect(url_for('warehouse.unit_list'))
+
+
+@bp.route('/units/<int:unit_id>/toggle', methods=['POST'])
+@login_required
+@permission_required('material.unit.manage')
+def unit_toggle(unit_id):
+    unit = db.get_or_404(Unit, unit_id)
+    unit.is_active = not unit.is_active
+    db.session.commit()
+    flash('单位「%s」已%s' % (unit.name, '启用' if unit.is_active else '停用'),
+          'success' if unit.is_active else 'warning')
+    return redirect(url_for('warehouse.unit_list'))
+
+
+@bp.route('/units/<int:unit_id>/delete', methods=['POST'])
+@login_required
+@permission_required('material.unit.manage')
+def unit_delete(unit_id):
+    """软删单位：仍被换算关系或历史单据引用时拒绝，避免下拉断链。"""
+    unit = db.get_or_404(Unit, unit_id)
+    refs = find_references(unit)
+    if refs:
+        flash('单位「%s」仍被引用（%s），不能删除' % (unit.name, format_references(refs)),
+              'danger')
+        return redirect(url_for('warehouse.unit_list'))
+    mark_deleted(unit, module='material', target_type='unit',
+                 summary='删除计量单位「%s」，可在回收站恢复' % unit.name)
+    flash('单位「%s」已删除，可在系统管理→回收站恢复' % unit.name, 'success')
+    return redirect(url_for('warehouse.unit_list'))
+
+
+@bp.route('/unit-conversions/new', methods=['POST'])
+@login_required
+@permission_required('material.unit.manage')
+def unit_conversion_new():
+    form = UnitConversionForm()
+    fill_unit_conversion_choices(form)
+    if not form.validate_on_submit():
+        flash('换算表单校验失败：%s' % '；'.join(err for errs in form.errors.values()
+                                          for err in errs), 'danger')
+        return redirect(url_for('warehouse.unit_list'))
+    return _save_unit_conversion(form)
+
+
+@bp.route('/unit-conversions/<int:conv_id>/edit', methods=['POST'])
+@login_required
+@permission_required('material.unit.manage')
+def unit_conversion_edit(conv_id):
+    conv = db.get_or_404(UnitConversion, conv_id)
+    form = UnitConversionForm(obj=conv)
+    fill_unit_conversion_choices(form)
+    if not form.validate_on_submit():
+        flash('换算表单校验失败：%s' % '；'.join(err for errs in form.errors.values()
+                                          for err in errs), 'danger')
+        return redirect(url_for('warehouse.unit_list'))
+    return _save_unit_conversion(form, exclude_id=conv.id)
+
+
+def _save_unit_conversion(form, exclude_id=None):
+    material = db.session.get(Material, form.material_id.data)
+    unit = db.session.get(Unit, form.unit_id.data)
+    if material is None or unit is None or not unit.is_active:
+        flash('物料或单位不存在/已停用', 'danger')
+        return redirect(url_for('warehouse.unit_list'))
+    base = base_unit_of(material)
+    if base is None:
+        flash('物料「%s」的基本单位「%s」尚未在单位档案中维护，请先建档' % (
+            material.name, material.unit), 'danger')
+        return redirect(url_for('warehouse.unit_list'))
+    if base.dimension != unit.dimension:
+        flash('单位「%s」与物料基本单位「%s」量纲不同，不能换算' % (
+            unit.name, base.name), 'danger')
+        return redirect(url_for('warehouse.unit_list'))
+    if _duplicate_conversion(material.id, unit.id, exclude_id=exclude_id):
+        flash('该物料的「%s」换算关系已存在' % unit.name, 'danger')
+        return redirect(url_for('warehouse.unit_list'))
+
+    if exclude_id:
+        conv = db.session.get(UnitConversion, exclude_id)
+        conv.material_id = material.id
+        conv.unit_id = unit.id
+        conv.factor = form.factor.data
+        conv.remark = form.remark.data or ''
+        action, label = 'update', '保存'
+    else:
+        conv = UnitConversion(material_id=material.id, unit_id=unit.id,
+                              factor=form.factor.data, remark=form.remark.data or '')
+        db.session.add(conv)
+        action, label = 'create', '新增'
+    log_operation(module='material', action=action, target_type='unit_conversion',
+                  target_id=conv.id, summary='%s换算：1%s = %s%s（%s）' % (
+                      label, unit.name, form.factor.data, base.name, material.name))
+    db.session.commit()
+    flash('已%s换算：1%s = %s%s' % (label, unit.name, form.factor.data, base.name), 'success')
+    return redirect(url_for('warehouse.unit_list'))
+
+
+@bp.route('/unit-conversions/<int:conv_id>/delete', methods=['POST'])
+@login_required
+@permission_required('material.unit.manage')
+def unit_conversion_delete(conv_id):
+    conv = db.get_or_404(UnitConversion, conv_id)
+    desc = '1单位 = %s基本单位' % conv.factor
+    mark_deleted(conv, module='material', target_type='unit_conversion',
+                 summary='删除单位换算「%s」，可在回收站恢复' % desc)
+    flash('换算关系已删除，可在系统管理→回收站恢复', 'success')
+    return redirect(url_for('warehouse.unit_list'))
 
 
 # ---------------- 仓库档案 ----------------
@@ -138,6 +436,21 @@ def warehouse_delete(warehouse_id):
 
 # ---------------- 出入库单据 ----------------
 
+@bp.route('/api/units')
+@login_required
+@permission_required('warehouse.manage')
+def api_units():
+    """出入库录入联动：返回物料基本单位与已维护换算单位。"""
+    material_id = request.args.get('material_id', type=int)
+    material = db.session.get(Material, material_id) if material_id else None
+    if material is None:
+        return jsonify(ok=False, message='物料不存在')
+    conversions = [{
+        'unit_id': c.unit_id, 'name': c.unit.name if c.unit else '', 'factor': c.factor,
+    } for c in UnitConversion.query.filter_by(material_id=material.id).all() if c.unit]
+    return jsonify(ok=True, base_unit=material.unit or '', conversions=conversions)
+
+
 @bp.route('/docs')
 @login_required
 @permission_required('warehouse.manage')
@@ -172,7 +485,12 @@ def doc_new():
                 created_by=current_user.id,
                 related_order_id=form.related_order_id.data or None,
                 remark=form.remark.data or '',
+                supplier_id=form.supplier_id.data or None,
+                unit_id=form.unit_id.data or None,
+                input_quantity=form.quantity.data,
             )
+        except UnitConversionError as exc:
+            flash(str(exc), 'danger')
         except InsufficientStockError as exc:
             db.session.rollback()
             flash('库存不足，当前余量 %d，未生成单据' % exc.available, 'danger')

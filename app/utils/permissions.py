@@ -38,16 +38,21 @@ PERMISSION_REGISTRY = {
         'production.view': '工单查看',
         'production.manage': '工单管理',
         'production.issue': '工单领料',
+        'production.product.manage': '产品档案与BOM维护',
         'production.process.manage': '工序档案维护',
+        'production.route.manage': '工艺路线维护',
         'production.defect_reason.manage': '不良原因维护',
+        'production.customer.manage': '客户档案维护',
     },
     '物料管理': {
         'material.manage': '物料管理',
+        'material.unit.manage': '单位档案与换算维护',
     },
     '仓库管理': {
         'warehouse.view': '库存查看',
         'warehouse.manage': '出入库管理',
         'warehouse.ledger.view': '库存流水查询',
+        'warehouse.supplier.manage': '供应商档案维护',
     },
     '文件管理': {
         'files.view': '文件查看',

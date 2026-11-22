@@ -23,6 +23,21 @@ class OperationLog(db.Model):
         'purge': '彻底删除',
     }
 
+    # 模块名沿用蓝图 code 入库，展示层统一映射为中文（未知模块原样显示）。
+    MODULE_LABELS = {
+        'main': '工作台',
+        'auth': '登录认证',
+        'hr': '组织人事',
+        'attendance': '考勤管理',
+        'production': '生产管理',
+        'material': '物料管理',
+        'warehouse': '物料仓库',
+        'files': '文件管理',
+        'chat': '站内聊天',
+        'rbac': '角色权限',
+        'system': '系统管理',
+    }
+
     id = db.Column(db.Integer, primary_key=True)
     operator_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True,
                             comment='操作人，可空（系统操作）')
@@ -39,6 +54,10 @@ class OperationLog(db.Model):
     @property
     def action_label(self) -> str:
         return self.ACTION_LABELS.get(self.action, self.action or '-')
+
+    @property
+    def module_label(self) -> str:
+        return self.MODULE_LABELS.get(self.module, self.module or '-')
 
     @property
     def operator_name(self) -> str:

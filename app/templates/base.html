@@ -16,6 +16,8 @@
         .sidebar .group-toggle .menu-caret { transition: transform .2s ease; }
         .sidebar .group-toggle[aria-expanded="false"] .menu-caret { transform: rotate(-90deg); }
         .sidebar .collapse:not(.show) { display: none; }
+        .sidebar .menu-search-box { padding: 0 1rem 0.5rem; border-bottom: 1px solid #f0f0f0; }
+        .sidebar .menu-search-box .input-group-text { background: #fff; }
         main.content { margin-left: 220px; }
         @media (max-width: 767.98px) {
             .sidebar { display: none; }
@@ -55,13 +57,24 @@
         <div class="row">
             <!-- 左侧权限导航 -->
             <nav id="sidebar" class="col-md-2 d-md-block bg-white sidebar collapse pt-3 pb-5">
-                <ul class="nav flex-column">
+                <div class="menu-search-box mb-2">
+                    <div class="input-group input-group-sm">
+                        <span class="input-group-text"><i class="bi bi-search"></i></span>
+                        <input type="text" id="menuSearch" class="form-control" placeholder="查询页面名称"
+                               autocomplete="off" aria-label="查询页面名称">
+                        <button class="btn btn-outline-secondary" type="button" id="menuSearchClear"
+                                title="清空查询" aria-label="清空查询"><i class="bi bi-x"></i></button>
+                    </div>
+                    <div id="menuSearchEmpty" class="small text-muted mt-2 d-none" aria-live="polite">未找到相关页面</div>
+                </div>
+                <ul class="nav flex-column" id="menuList">
                     {% for item in current_menu %}
                         {% if item.children %}
                             {% set group_id = 'menu-group-' ~ loop.index %}
                             <li class="nav-item">
                                 <a class="nav-link text-muted fw-bold small pt-3 group-toggle d-flex justify-content-between align-items-center"
                                    href="javascript:void(0)" data-collapse-target="{{ group_id }}"
+                                   data-menu-name="{{ item.name }}"
                                    aria-expanded="true"
                                    aria-controls="{{ group_id }}">
                                     <span><i class="bi {{ item.icon }}"></i> {{ item.name }}</span>
@@ -70,7 +83,7 @@
                                 <div class="collapse show" id="{{ group_id }}">
                                     <ul class="nav flex-column ms-3">
                                         {% for sub in item.children %}
-                                            <li class="nav-item">
+                                            <li class="nav-item menu-search-item" data-menu-name="{{ sub.name }}">
                                                 <a class="nav-link py-1 {% if request.endpoint == sub.endpoint %}active fw-bold{% endif %}"
                                                    href="{{ url_for(sub.endpoint) }}">{{ sub.name }}</a>
                                             </li>
@@ -79,7 +92,7 @@
                                 </div>
                             </li>
                         {% else %}
-                            <li class="nav-item">
+                            <li class="nav-item menu-search-item" data-menu-name="{{ item.name }}">
                                 <a class="nav-link {% if request.endpoint == item.endpoint %}active fw-bold{% endif %}"
                                    href="{{ url_for(item.endpoint) }}">
                                     <i class="bi {{ item.icon }}"></i> {{ item.name }}
@@ -99,41 +112,108 @@
     </div>
 
     <script>
-        // 侧边栏分组折叠（纯原生实现，不依赖 Bootstrap JS，避免 CDN 不可达时失效）
+        // 侧边栏：分组折叠 + 菜单查询（纯原生实现，不依赖 Bootstrap JS）
         document.addEventListener('DOMContentLoaded', function () {
             var STORAGE_KEY = 'factorySidebarCollapsed';
             var collapsed = {};
             try { collapsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}') || {}; } catch (e) { collapsed = {}; }
 
-            var toggles = document.querySelectorAll('#sidebar .group-toggle');
-            toggles.forEach(function (link) {
+            var groups = [];
+            document.querySelectorAll('#sidebar .group-toggle').forEach(function (link) {
                 var groupId = link.getAttribute('data-collapse-target');
                 var panel = document.getElementById(groupId);
                 if (!panel) { return; }
+                groups.push({ link: link, panel: panel, id: groupId, li: link.closest('li.nav-item') });
+            });
 
-                // 应用折叠状态：toggle 'show' 类 + 同步箭头方向
-                function applyState(isCollapsed) {
-                    if (isCollapsed) {
-                        panel.classList.remove('show');
-                        link.setAttribute('aria-expanded', 'false');
-                    } else {
-                        panel.classList.add('show');
-                        link.setAttribute('aria-expanded', 'true');
-                    }
+            function applyState(group, isCollapsed) {
+                if (isCollapsed) {
+                    group.panel.classList.remove('show');
+                    group.link.setAttribute('aria-expanded', 'false');
+                } else {
+                    group.panel.classList.add('show');
+                    group.link.setAttribute('aria-expanded', 'true');
                 }
+            }
 
-                // 恢复上次状态
-                applyState(!!collapsed[groupId]);
+            var searchInput = document.getElementById('menuSearch');
+            var clearBtn = document.getElementById('menuSearchClear');
+            var emptyTip = document.getElementById('menuSearchEmpty');
+            var searching = false;
 
-                // 点击切换：当前展开则收起，当前收起则展开
-                link.addEventListener('click', function (e) {
+            groups.forEach(function (group) {
+                applyState(group, !!collapsed[group.id]);
+                group.link.addEventListener('click', function (e) {
                     e.preventDefault();
-                    var shouldCollapse = panel.classList.contains('show');
-                    applyState(shouldCollapse);
-                    collapsed[groupId] = shouldCollapse;
+                    if (searching) { return; }
+                    var shouldCollapse = group.panel.classList.contains('show');
+                    applyState(group, shouldCollapse);
+                    collapsed[group.id] = shouldCollapse;
                     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(collapsed)); } catch (err) {}
                 });
             });
+
+            function resetSearch() {
+                searching = false;
+                if (searchInput) { searchInput.value = ''; }
+                document.querySelectorAll('#sidebar li.menu-search-item').forEach(function (li) {
+                    li.classList.remove('d-none');
+                });
+                groups.forEach(function (group) {
+                    if (group.li) { group.li.classList.remove('d-none'); }
+                    applyState(group, !!collapsed[group.id]);
+                });
+                if (emptyTip) { emptyTip.classList.add('d-none'); }
+            }
+
+            function runSearch() {
+                var q = ((searchInput && searchInput.value) || '').trim().toLowerCase();
+                if (!q) { resetSearch(); return; }
+                searching = true;
+                var visibleCount = 0;
+
+                groups.forEach(function (group) {
+                    var groupName = (group.link.getAttribute('data-menu-name') || '').toLowerCase();
+                    var groupHit = groupName.indexOf(q) !== -1;
+                    var visibleInGroup = 0;
+                    group.panel.querySelectorAll('li.menu-search-item').forEach(function (li) {
+                        var name = (li.getAttribute('data-menu-name') || '').toLowerCase();
+                        var hit = groupHit || name.indexOf(q) !== -1;
+                        li.classList.toggle('d-none', !hit);
+                        if (hit) { visibleInGroup++; }
+                    });
+                    visibleCount += visibleInGroup;
+                    if (group.li) { group.li.classList.toggle('d-none', !groupHit && visibleInGroup === 0); }
+                    if (groupHit || visibleInGroup > 0) {
+                        applyState(group, false);
+                    } else {
+                        applyState(group, true);
+                    }
+                });
+
+                // 顶层单页菜单（工作台、站内聊天）
+                document.querySelectorAll('#menuList > li.menu-search-item').forEach(function (li) {
+                    var name = (li.getAttribute('data-menu-name') || '').toLowerCase();
+                    var hit = name.indexOf(q) !== -1;
+                    li.classList.toggle('d-none', !hit);
+                    if (hit) { visibleCount++; }
+                });
+
+                if (emptyTip) { emptyTip.classList.toggle('d-none', visibleCount > 0); }
+            }
+
+            if (searchInput) {
+                searchInput.addEventListener('input', runSearch);
+                searchInput.addEventListener('keydown', function (e) {
+                    if (e.key === 'Escape') { resetSearch(); searchInput.blur(); }
+                });
+            }
+            if (clearBtn) {
+                clearBtn.addEventListener('click', function () {
+                    resetSearch();
+                    if (searchInput) { searchInput.focus(); }
+                });
+            }
         });
 
         // 站内消息未读角标：13 秒轮询 /chat/api/unread

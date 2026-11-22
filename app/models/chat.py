@@ -53,6 +53,8 @@ class ConversationRead(db.Model):
     peer_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, comment='对方用户')
     last_read_message_id = db.Column(db.Integer, nullable=False, default=0,
                                      comment='该 peer→user 的最后已读消息 id')
+    is_hidden = db.Column(db.Boolean, nullable=False, default=False,
+                          comment='是否从最近会话移除（消息保留，新消息到达后重现）')
     updated_at = db.Column(db.DateTime, nullable=False, default=now,
                            onupdate=now, comment='更新时间')
 
