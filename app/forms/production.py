@@ -107,6 +107,12 @@ def fill_workorder_choices(form) -> None:
         ]
 
 
+def priority_choices():
+    """优先级下拉选项：由 WorkOrder.PRIORITY_LABELS 派生，避免两处维护标签。"""
+    from app.models.production import WorkOrder
+    return [(code, label) for code, label in WorkOrder.PRIORITY_LABELS.items()]
+
+
 class WorkOrderForm(FlaskForm):
     """工单新建/编辑表单。"""
     product_name = StringField('产品名称', validators=[
@@ -117,6 +123,11 @@ class WorkOrderForm(FlaskForm):
     ])
     due_date = DateField('交货日期', validators=[Optional()], format='%Y-%m-%d',
                          default=today)
+    # L1 轻量排产：优先级 + 人工可覆盖的两个计划日期（留空 = 自动倒排）
+    priority = SelectField('优先级', coerce=str, choices=priority_choices(), default='normal',
+                           validators=[Optional()])
+    plan_start_date = DateField('计划开工日', validators=[Optional()], format='%Y-%m-%d')
+    plan_end_date = DateField('计划完工日', validators=[Optional()], format='%Y-%m-%d')
     leader_id = SelectField('负责人', coerce=int, validators=[Optional()])
     related_department_id = SelectField('归属部门', coerce=int, validators=[Optional()],
                                         default=0)

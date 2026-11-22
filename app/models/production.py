@@ -66,12 +66,21 @@ class WorkOrder(SoftDeleteMixin, db.Model):
         'in_progress': 'completed',
         'completed': 'accepted',
     }
+    # L1 优先级标签：表单 choices 与模板渲染共用（本期仅展示/排序，不参与倒排）
+    PRIORITY_LABELS = {'high': '高', 'normal': '普通', 'low': '低'}
 
     id = db.Column(db.Integer, primary_key=True)
     order_no = db.Column(db.String(32), unique=True, nullable=False, comment='单号 WO+日期+序号')
     product_name = db.Column(db.String(128), nullable=False, comment='产品名称')
     quantity = db.Column(db.Integer, nullable=False, default=1, comment='数量')
     due_date = db.Column(db.Date, nullable=True, comment='交期')
+    # L1 轻量排产：倒排计划字段（计算全部留在 scheduling_service）
+    plan_start_date = db.Column(db.Date, nullable=True, comment='计划开工日（倒推的最晚开工日）')
+    plan_end_date = db.Column(db.Date, nullable=True, comment='计划完工日（=交期，保留原值）')
+    priority = db.Column(db.String(10), nullable=False, default='normal',
+                         comment='优先级 high/normal/low（L1 仅展示/排序）')
+    plan_manual = db.Column(db.Boolean, nullable=False, default=False,
+                            comment='人工覆盖标记：True 时自动重算不改写计划日期')
     leader_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True, comment='负责人')
     related_department_id = db.Column(db.Integer, db.ForeignKey('departments.id'), nullable=True,
                                       comment='归属部门（P1 数据权限，可空回退负责人部门）')
@@ -135,6 +144,10 @@ class WorkOrder(SoftDeleteMixin, db.Model):
 
     def __repr__(self) -> str:
         return '<WorkOrder %s>' % self.order_no
+
+
+# 模块级别名：供路由/表单直接 import，与 WorkOrder.PRIORITY_LABELS 同源
+PRIORITY_LABELS = WorkOrder.PRIORITY_LABELS
 
 
 class WorkOrderStep(SoftDeleteMixin, db.Model):

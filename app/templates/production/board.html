@@ -18,10 +18,24 @@
                 </div>
                 <div class="card-body p-2">
                     {% for order in orders %}
-                        <div class="border rounded p-2 mb-2 bg-white">
+                        {% set ps = plan_status_map[order.id] %}
+                        {% set pcode = order.priority or 'normal' %}
+                        <div class="border rounded p-2 mb-2 bg-white{% if ps.overdue or ps.warning %} border-danger{% endif %}">
                             <a href="{{ url_for('production.order_detail', order_id=order.id) }}" class="fw-bold d-block">{{ order.order_no }}</a>
-                            <div class="small">{{ order.product_name }} × {{ order.quantity }}</div>
+                            <div class="small">{{ order.product_name }} × {{ order.quantity }}
+                                <span class="badge bg-light text-dark border ms-1" title="优先级">{{ priority_labels.get(pcode, pcode) }}</span>
+                            </div>
                             <div class="small text-muted">负责人：{{ order.leader.display_name() if order.leader else '-' }}{% if order.due_date %} · 交期 {{ order.due_date | fmt_date }}{% endif %}</div>
+                            {% if order.plan_start_date %}
+                                <div class="small mt-1">
+                                    计划开工：{{ order.plan_start_date | fmt_date }}
+                                    {% if ps.days is none %}{% elif ps.days > 0 %} · 还剩 {{ ps.days }} 个工作日{% elif ps.days == 0 %} · 今天最晚开工{% else %} · 已过 {{ 0 - ps.days }} 个工作日{% endif %}
+                                    {% if ps.manual %}<span class="badge bg-secondary ms-1" title="人工指定">人工</span>{% endif %}
+                                </div>
+                            {% endif %}
+                            {% if ps.label %}
+                                <div class="mt-1"><span class="badge {% if ps.overdue %}bg-danger{% else %}bg-warning text-dark{% endif %}">{{ ps.label }}</span></div>
+                            {% endif %}
                         </div>
                     {% else %}
                         <div class="text-center text-muted py-4 small">空</div>

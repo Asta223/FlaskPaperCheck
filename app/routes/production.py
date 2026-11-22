@@ -12,13 +12,14 @@ from app.forms.production import (DefectReasonForm, IssueForm, ProcessForm, Qual
                                   fill_defect_reason_choices, fill_department_choices,
                                   fill_issue_choices, fill_process_choices,
                                   fill_workorder_choices)
-from app.models.production import DefectReason, Process, WorkOrder, WorkOrderStep
+from app.models.production import DefectReason, PRIORITY_LABELS, Process, WorkOrder, WorkOrderStep
 from app.models.system import OperationLog
 from app.models.user import User
 from app.models.warehouse import Inventory, StockDocument
 from app.services.inventory_service import InsufficientStockError, InventoryServiceError, \
     apply_stock_document
 from app.services.log_service import log_operation
+from app.services.scheduling_service import apply_plan, plan_status, sum_standard_hours
 from app.services.soft_delete_service import mark_deleted
 from app.utils.data_scope import visible_department_ids
 from app.utils.delete_guard import find_references, format_references
@@ -31,6 +32,22 @@ bp = Blueprint('production', __name__, url_prefix='/production')
 # ---------------- 工序档案（P2：主数据统一维护，工单只能引用）----------------
 
 UNFINISHED_ORDER_STATUSES = ('pending', 'in_progress')
+
+# L1 计划结果提示（flash 与操作日志共用，避免两处文案分叉）
+PLAN_RESULT_MESSAGES = {
+    'auto': '已按交期自动倒排',
+    'manual': '已保存人工计划日期',
+    'unavailable': '未维护工序参考工时或无交期，计划日期留空',
+}
+
+
+def plan_result_text(result, order) -> str:
+    """计划结果的中文提示（含日期），供 flash 与日志摘要复用。"""
+    base = PLAN_RESULT_MESSAGES.get(result, result)
+    if result == 'unavailable':
+        return base
+    return '%s（计划开工 %s，计划完工 %s）' % (
+        base, order.plan_start_date or '-', order.plan_end_date or '-')
 
 
 def unfinished_order_refs(process_id):
@@ -174,8 +191,10 @@ def order_list():
         query = query.filter(WorkOrder.leader_id == leader_id)
     pagination = query.order_by(WorkOrder.id.desc()).paginate(page=page, per_page=20,
                                                               error_out=False)
+    plan_status_map = {o.id: plan_status(o) for o in pagination.items}
     return render_template('production/order_list.html', pagination=pagination, status=status,
-                           leader_id=leader_id, status_labels=WorkOrder.STATUS_LABELS)
+                           leader_id=leader_id, status_labels=WorkOrder.STATUS_LABELS,
+                           priority_labels=PRIORITY_LABELS, plan_status_map=plan_status_map)
 
 
 def _generate_order_no() -> str:
@@ -322,6 +341,14 @@ def order_new():
     fill_workorder_choices(form)
     fill_department_choices(form)
     if form.validate_on_submit():
+        manual_start = form.plan_start_date.data
+        manual_end = form.plan_end_date.data
+        # L1 覆盖判定：两个计划日期只要有一个非空即视为人工，此时两个都必须填
+        if (manual_start is None) != (manual_end is None):
+            flash('人工指定计划日期时，计划开工日与计划完工日必须同时填写；'
+                  '两个都留空则由系统按交期自动倒排', 'danger')
+            return render_template('production/order_form.html', form=form, title='新建工单',
+                                   priority_labels=PRIORITY_LABELS)
         order = WorkOrder(
             order_no=_generate_order_no(),
             product_name=form.product_name.data.strip(),
@@ -329,17 +356,23 @@ def order_new():
             due_date=form.due_date.data,
             leader_id=form.leader_id.data or None,
             related_department_id=form.related_department_id.data or None,
+            priority=form.priority.data or 'normal',
             remark=form.remark.data or '',
             created_by=current_user.id,
         )
         db.session.add(order)
         db.session.flush()
+        plan_result = apply_plan(order, manual_start, manual_end)
         log_operation(module='production', action='create', target_type='work_order',
-                      target_id=order.id, summary='创建工单 %s' % order.order_no)
+                      target_id=order.id,
+                      summary='创建工单 %s；计划：%s' % (
+                          order.order_no, plan_result_text(plan_result, order)))
         db.session.commit()
-        flash('工单 %s 创建成功' % order.order_no, 'success')
+        flash('工单 %s 创建成功；%s' % (order.order_no,
+                                   plan_result_text(plan_result, order)), 'success')
         return redirect(url_for('production.order_detail', order_id=order.id))
-    return render_template('production/order_form.html', form=form, title='新建工单')
+    return render_template('production/order_form.html', form=form, title='新建工单',
+                           priority_labels=PRIORITY_LABELS)
 
 
 @bp.route('/orders/<int:order_id>/edit', methods=['GET', 'POST'])
@@ -349,22 +382,37 @@ def order_edit(order_id):
     """编辑工单基础信息。"""
     order = db.get_or_404(WorkOrder, order_id)
     form = WorkOrderForm(obj=order)
+    # L1：自动工单的计划日期不回填表单，仅以只读占位提示展示当前值（架构 §5）
+    if request.method == 'GET' and not order.plan_manual:
+        form.plan_start_date.data = None
+        form.plan_end_date.data = None
     fill_workorder_choices(form)
     fill_department_choices(form)
     if form.validate_on_submit():
+        manual_start = form.plan_start_date.data
+        manual_end = form.plan_end_date.data
+        if (manual_start is None) != (manual_end is None):
+            flash('人工指定计划日期时，计划开工日与计划完工日必须同时填写；'
+                  '两个都留空则由系统按交期自动倒排', 'danger')
+            return render_template('production/order_form.html', form=form, title='编辑工单',
+                                   target=order, priority_labels=PRIORITY_LABELS)
         order.product_name = form.product_name.data.strip()
         order.quantity = form.quantity.data
         order.due_date = form.due_date.data
         order.leader_id = form.leader_id.data or None
         order.related_department_id = form.related_department_id.data or None
+        order.priority = form.priority.data or 'normal'
         order.remark = form.remark.data or ''
+        plan_result = apply_plan(order, manual_start, manual_end)
         log_operation(module='production', action='update', target_type='work_order',
-                      target_id=order.id, summary='编辑工单 %s' % order.order_no)
+                      target_id=order.id,
+                      summary='编辑工单 %s；计划：%s' % (
+                          order.order_no, plan_result_text(plan_result, order)))
         db.session.commit()
-        flash('工单已保存', 'success')
+        flash('工单已保存；%s' % plan_result_text(plan_result, order), 'success')
         return redirect(url_for('production.order_detail', order_id=order.id))
     return render_template('production/order_form.html', form=form, title='编辑工单',
-                           target=order)
+                           target=order, priority_labels=PRIORITY_LABELS)
 
 
 @bp.route('/orders/<int:order_id>/delete', methods=['POST'])
@@ -409,6 +457,13 @@ def order_detail(order_id):
                .filter_by(target_type='work_order', target_id=order.id)
                .order_by(OperationLog.created_at.desc(), OperationLog.id.desc())
                .limit(100).all())
+    # L1 计划展示：状态聚合 + 无法倒排时的可读提示
+    plan = plan_status(order)
+    plan_hint = ''
+    if not order.due_date:
+        plan_hint = '未填写交期，无法倒排'
+    elif sum_standard_hours(order) <= 0:
+        plan_hint = '未维护工序参考工时，无法倒排'
     return render_template('production/order_detail.html', order=order, step_form=step_form,
                            status_labels=WorkOrder.STATUS_LABELS,
                            step_labels=WorkOrderStep.STATUS_LABELS,
@@ -417,7 +472,8 @@ def order_detail(order_id):
                            can_run_steps=order.can_run_steps,
                            can_record_quality=order.status in ('in_progress', 'completed'),
                            total_hours=total_hours, labor_form=StepLaborForm(),
-                           quality_form=quality_form)
+                           quality_form=quality_form, plan=plan, plan_hint=plan_hint,
+                           priority_labels=PRIORITY_LABELS)
 
 
 @bp.route('/orders/<int:order_id>/status', methods=['POST'])
@@ -445,6 +501,31 @@ def order_status(order_id):
     return redirect(url_for('production.order_detail', order_id=order.id))
 
 
+@bp.route('/orders/<int:order_id>/plan/recalculate', methods=['POST'])
+@login_required
+@permission_required('production.manage')
+def order_plan_recalculate(order_id):
+    """重新倒排：清除人工覆盖，按当前交期/数量/工序重算（仅未完结工单）。
+
+    数据权限：统一走 base_order_query()，跨部门工单 first_or_404 直接 404；
+    CSRF 由全局 CSRFProtect 覆盖，无需在此重复校验。
+    """
+    order = base_order_query().filter_by(id=order_id).first_or_404()
+    if order.status not in UNFINISHED_ORDER_STATUSES:
+        flash('已完结工单不参与重新倒排', 'danger')
+        return redirect(url_for('production.order_detail', order_id=order.id))
+    # 不传人工日期：强制回到自动模式并清除 plan_manual
+    plan_result = apply_plan(order)
+    log_operation(module='production', action='update', target_type='work_order',
+                  target_id=order.id,
+                  summary='工单 %s 重新倒排：%s' % (
+                      order.order_no, plan_result_text(plan_result, order)))
+    db.session.commit()
+    flash('工单 %s 已重新倒排；%s' % (order.order_no, plan_result_text(plan_result, order)),
+          'success' if plan_result != 'unavailable' else 'warning')
+    return redirect(url_for('production.order_detail', order_id=order.id))
+
+
 @bp.route('/orders/<int:order_id>/steps/new', methods=['POST'])
 @login_required
 @permission_required('production.manage')
@@ -468,6 +549,10 @@ def step_new(order_id):
             remark=form.remark.data or '',
         )
         db.session.add(step)
+        # L1 高危点：新建工单时还没有工序，工序变更后必须重算，否则计划日期永远为空
+        db.session.flush()  # 先落库，确保 order.steps 关系包含刚添加的工序
+        if not order.plan_manual:
+            apply_plan(order)  # 人工覆盖的工单不改写计划日期
         db.session.commit()
         flash('工序「%s」已添加' % step.name, 'success')
     else:
@@ -606,6 +691,10 @@ def step_delete(step_id):
         name = step.name
         mark_deleted(step, module='production', target_type='work_order_step',
                      summary='删除工单工序「%s」，可在回收站恢复' % name)
+        if not order.plan_manual:
+            # 工序减少后按剩余参考工时重算；mark_deleted 已 commit，此处只提交计划字段
+            apply_plan(order)
+            db.session.commit()
         flash('工序「%s」已删除，可在回收站恢复' % name, 'warning')
     return redirect(url_for('production.order_detail', order_id=order_id))
 
@@ -624,12 +713,13 @@ def api_stock():
     warehouse = db.session.get(Warehouse, warehouse_id) if warehouse_id else None
     material = db.session.get(Material, material_id) if material_id else None
     if warehouse is None or material is None:
-        return jsonify(ok=False, available=0, message='请选择仓库和物料')
+        return jsonify(ok=False, available=0, unit='', message='请选择仓库和物料')
     row = (Inventory.query
            .filter_by(warehouse_id=warehouse.id, material_id=material.id).first())
     available = row.quantity if row else 0
+    # 单位随余量一并返回，供领料弹窗联动展示；空值兜底避免前端出现 undefined/None
     return jsonify(ok=True, available=available, warehouse=warehouse.name,
-                   material=material.name)
+                   material=material.name, unit=material.unit or '')
 
 
 @bp.route('/orders/<int:order_id>/issue', methods=['POST'])
@@ -704,6 +794,8 @@ def board():
          [o for o in orders if o.status == status])
         for status in ('pending', 'in_progress', 'completed', 'accepted')
     ]
+    plan_status_map = {o.id: plan_status(o) for o in orders}
     return render_template('production/board.html', columns=columns,
                            status_labels=WorkOrder.STATUS_LABELS,
-                           step_labels=WorkOrderStep.STATUS_LABELS)
+                           step_labels=WorkOrderStep.STATUS_LABELS,
+                           priority_labels=PRIORITY_LABELS, plan_status_map=plan_status_map)

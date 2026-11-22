@@ -18,6 +18,16 @@
                     </button>
                 </form>
             {% endif %}
+            {% if order.status in ('pending', 'in_progress') %}
+                <form class="d-inline" method="POST"
+                      action="{{ url_for('production.order_plan_recalculate', order_id=order.id) }}"
+                      onsubmit="return confirm('确认按当前交期/数量/工序重新倒排工单「{{ order.order_no }}」？将清除人工覆盖。');">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button class="btn btn-outline-info" type="submit" title="重新倒排">
+                        <i class="bi bi-arrow-repeat"></i> 重新倒排
+                    </button>
+                </form>
+            {% endif %}
             <a class="btn btn-outline-primary" href="{{ url_for('production.order_edit', order_id=order.id) }}">编辑</a>
         {% endif %}
         {% if 'production.issue' in current_user|perm_codes and can_issue %}
@@ -39,6 +49,20 @@
             <div class="col-md-2"><span class="text-muted">负责人：</span>{{ order.leader.display_name() if order.leader else '-' }}</div>
             <div class="col-md-3"><span class="text-muted">创建：</span>{{ order.creator.display_name() if order.creator else '-' }} · {{ order.created_at | fmt_dt }}</div>
         </div>
+        <div class="row mt-2 border-top pt-2">
+            {% set pcode = order.priority or 'normal' %}
+            <div class="col-md-2"><span class="text-muted">优先级：</span>{{ priority_labels.get(pcode, pcode) }}</div>
+            <div class="col-md-3"><span class="text-muted">计划开工日：</span>{{ order.plan_start_date | fmt_date }}
+                {% if plan.manual %}<span class="badge bg-secondary ms-1" title="人工指定">人工</span>{% endif %}
+            </div>
+            <div class="col-md-3"><span class="text-muted">计划完工日：</span>{{ order.plan_end_date | fmt_date }}</div>
+            <div class="col-md-4"><span class="text-muted">倒排剩余：</span>
+                {% if plan.days is none %}-{% elif plan.days > 0 %}还剩 {{ plan.days }} 个工作日{% elif plan.days == 0 %}今天最晚开工{% else %}已过 {{ 0 - plan.days }} 个工作日{% endif %}
+                {% if plan.label %}<span class="badge {% if plan.overdue %}bg-danger{% else %}bg-warning text-dark{% endif %} ms-2">{{ plan.label }}</span>{% endif %}
+            </div>
+        </div>
+        <div class="mt-2 small text-muted">计划来源：{% if plan.manual %}人工指定（重新倒排可解除）{% else %}按交期自动倒排{% endif %}</div>
+        {% if plan_hint %}<div class="alert alert-warning small py-2 mt-2 mb-0"><i class="bi bi-exclamation-triangle"></i> {{ plan_hint }}</div>{% endif %}
         {% if order.remark %}<div class="mt-2"><span class="text-muted">备注：</span>{{ order.remark }}</div>{% endif %}
     </div>
 </div>
@@ -242,14 +266,14 @@
     <div class="card-header bg-white"><i class="bi bi-box-seam"></i> 物料领用（关联出库单）</div>
     <div class="card-body p-0">
         <table class="table table-hover mb-0 align-middle">
-            <thead class="table-light"><tr><th>单据号</th><th>物料</th><th>仓库</th><th>数量</th><th>经手人</th><th>时间</th></tr></thead>
+            <thead class="table-light"><tr><th>单据号</th><th>物料</th><th>仓库</th><th>数量(单位)</th><th>经手人</th><th>时间</th></tr></thead>
             <tbody>
             {% for doc in issue_docs %}
                 <tr>
                     <td><a href="{{ url_for('warehouse.doc_list') }}">{{ doc.doc_no }}</a></td>
                     <td>{{ doc.material.name if doc.material else '-' }}</td>
                     <td>{{ doc.warehouse.name if doc.warehouse else '-' }}</td>
-                    <td>{{ doc.quantity }}</td>
+                    <td>{{ doc.quantity }}{% if doc.material and doc.material.unit %} {{ doc.material.unit }}{% endif %}</td>
                     <td>{{ doc.handler.display_name() if doc.handler else '-' }}</td>
                     <td>{{ doc.created_at | fmt_dt }}</td>
                 </tr>
@@ -296,7 +320,7 @@
             <div class="alert alert-light border mb-3 py-2" id="stockInfo">
                 <i class="bi bi-info-circle"></i> 选择仓库和物料后显示当前可用余量
             </div>
-            <div class="mb-3"><label class="form-label">数量</label>
+            <div class="mb-3"><label class="form-label" id="issueQuantityLabel">数量</label>
                 {{ issue_form.quantity(class='form-control', type='number', min=1, id='issueQuantity') }}
                 <div class="text-danger small" id="stockWarning" style="display:none;"></div>
             </div>
@@ -315,17 +339,19 @@
     var wh = document.getElementById('issueWarehouse');
     var mat = document.getElementById('issueMaterial');
     var qty = document.getElementById('issueQuantity');
+    var qtyLabel = document.getElementById('issueQuantityLabel');
     var info = document.getElementById('stockInfo');
     var warn = document.getElementById('stockWarning');
     var submit = document.getElementById('issueSubmit');
     if (!wh || !mat || !qty || !info) { return; }
     var available = null;
+    var unitText = '';  // 当前物料单位（含前导空格），无单位时不拼接，避免孤立空格
 
     function check() {
         if (available === null) { return; }
         var n = parseInt(qty.value, 10);
         if (!isNaN(n) && n > available) {
-            warn.textContent = '库存不足：当前仅 ' + available + '，还差 ' + (n - available);
+            warn.textContent = '库存不足：当前仅 ' + available + unitText + '，还差 ' + (n - available) + unitText;
             warn.style.display = 'block';
             if (submit) { submit.disabled = true; }
         } else {
@@ -336,6 +362,8 @@
 
     function loadStock() {
         available = null;
+        unitText = '';
+        if (qtyLabel) { qtyLabel.textContent = '数量'; }
         info.innerHTML = '<i class="bi bi-hourglass-split"></i> 正在查询余量…';
         if (submit) { submit.disabled = false; }
         warn.style.display = 'none';
@@ -348,8 +376,10 @@
             .then(function (d) {
                 if (d.ok) {
                     available = d.available;
+                    unitText = d.unit ? ' ' + d.unit : '';
+                    if (qtyLabel) { qtyLabel.textContent = d.unit ? '数量(' + d.unit + ')' : '数量'; }
                     info.innerHTML = '<i class="bi bi-box-seam"></i> 【' + d.warehouse + ' / ' +
-                        d.material + '】当前可用余量：<strong>' + d.available + '</strong>';
+                        d.material + '】当前可用余量：<strong>' + d.available + '</strong>' + unitText;
                     check();
                 } else {
                     info.innerHTML = '<i class="bi bi-exclamation-triangle"></i> ' + d.message;

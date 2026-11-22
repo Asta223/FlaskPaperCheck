@@ -22,13 +22,39 @@
                 {% for err in form.due_date.errors %}<div class="text-danger small">{{ err }}</div>{% endfor %}
             </div>
             <div class="col-md-3">
+                {{ form.priority.label(class="form-label") }}
+                {{ form.priority(class="form-select") }}
+                {% for err in form.priority.errors %}<div class="text-danger small">{{ err }}</div>{% endfor %}
+            </div>
+            <div class="col-md-3">
                 {{ form.leader_id.label(class="form-label") }}
                 {{ form.leader_id(class="form-select") }}
             </div>
-            <div class="col-md-9">
+            <div class="col-md-6">
                 {{ form.remark.label(class="form-label") }}
                 {{ form.remark(class="form-control", rows=2) }}
                 {% for err in form.remark.errors %}<div class="text-danger small">{{ err }}</div>{% endfor %}
+            </div>
+            <div class="col-12">
+                <hr class="my-1">
+                <div class="form-text mb-2">
+                    <i class="bi bi-info-circle"></i> 计划日期：
+                    {% if target and not target.plan_manual and target.plan_start_date %}
+                        留空 = 按交期自动倒排（当前：{{ target.plan_start_date | fmt_date }}）
+                    {% else %}
+                        留空 = 按交期自动倒排（保存工序后计算）；填写则视为人工指定，两个日期都必须填写
+                    {% endif %}
+                </div>
+            </div>
+            <div class="col-md-6">
+                {{ form.plan_start_date.label(class="form-label") }}
+                {{ form.plan_start_date(class="form-control", type="date") }}
+                {% for err in form.plan_start_date.errors %}<div class="text-danger small">{{ err }}</div>{% endfor %}
+            </div>
+            <div class="col-md-6">
+                {{ form.plan_end_date.label(class="form-label") }}
+                {{ form.plan_end_date(class="form-control", type="date") }}
+                {% for err in form.plan_end_date.errors %}<div class="text-danger small">{{ err }}</div>{% endfor %}
             </div>
             <div class="col-12">
                 {{ form.submit(class="btn btn-primary") }}

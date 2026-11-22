@@ -161,3 +161,6 @@ class Config:
 
     # P1-16 CSV 单次导出行数上限（默认假设 A1）
     MAX_EXPORT_ROWS = 10000
+
+    # L1 轻量排产：单班组/单线粗略日产能（小时/工作日），支持环境变量覆盖
+    DAILY_CAPACITY_HOURS = float(os.environ.get('DAILY_CAPACITY_HOURS', '8'))
