@@ -40,8 +40,25 @@
 - P2-5 多格式预览：`app/services/file_preview_service.py`（图片/PDF 内联；txt/csv/docx/xlsx/xls 内容级解析；doc/ppt 提示页），Jinja2 自动转义 + 大小/行列上限；依赖 python-docx/openpyxl/xlrd（xlwt 仅测试）。
 - P2-6 工单质量：`WorkOrder.can_run_steps` 只认 in_progress，待开始/终态锁定工序流转与工时；质量数量/良率/不良率由 `record_quality()` 服务端计算；不良原因独立表 `defect_reasons` + `production.defect_reason.manage` 权限，引用守卫 + 回收站。迁移 e5f6a7b8c9d0 已应用 MySQL。
 
+## 4 项修复（2026-11-18，曾随重置丢失后已恢复）
+- 回收站硬删除：管理员可从回收站"彻底删除"(purge_record 扫全库外键，可空 FK 置 NULL、不可空已软删子记录递归删，写 purge 日志)；禁止删当前登录账号。工序新增/编辑表单 action 修复(原来 POST 打到只读列表路由报 Method Not Allowed)。工序被未完结工单引用时禁止编辑/删除/停用(unfinished_order_refs + _guard_process_locked)。进行中工单的工序禁止删除。
+
+## L1 轻量排产（2026-11-22，commit 9742717）
+- 定位：只算日期+只做提醒，不含 L2 有限产能排程/甘特、L3 APS、BOM。文档 docs/PRD-L1-Scheduling.md + docs/ARCHITECTURE-L1-Scheduling.md。
+- WorkOrder 加 4 字段：plan_start_date/plan_end_date(Date可空)、priority(String10,normal/high/low,仅展示不参与计算)、plan_manual(Boolean,人工覆盖标记)。config 加 DAILY_CAPACITY_HOURS=8(环境变量可覆盖)。
+- `app/services/scheduling_service.py` 7 纯函数(duck typing 不 import models、today 可注入、apply_plan 不 commit)；`time_utils.py` 加 6 个工作日函数(周一~周五无节假日)。
+- 倒排口径：H=ΣProcess.standard_hours×quantity；D=max(1,ceil(H/日产能))；end=交期原值(落周末保留但回退跳周末)；start=从交期向前(含)第D工作日。无交期/无工时留空不伪造；交期已过照常倒排只标红。人工覆盖：两日期非空即人工(plan_manual=True)、清空即解除；超期「已超期」优先「开工预警」，仅未完工标红、不改状态机。
+- **两个必守触发点**：step_new/step_delete 成功后必调 apply_plan(建单无工序,漏则计划永远为空,且尊重 plan_manual)；重新倒排 `POST /orders/<id>/plan/recalculate` 走 base_order_query 数据权限、仅未完结、production.manage。
+- 领料单位显示：Material.unit 本就存在，领用表格/弹窗/出入库单列表补 `doc.material.unit` + api_stock 返回 unit。
+- 迁移 f6a7b8c9d0e1(down=e5f6a7b8c9d0)已应用 MySQL；测试 342 passed(test_l1_scheduling 57 + test_issue_unit_display)。
+
+## 分支污染事故与恢复（2026-11-22）
+- 事故：分支被污染重置(旧论文代码+6 旧迁移被 merge，其中 a1b2c3d4e5f6_add_reference_paper 与工厂链撞车导致双 head)，未提交改动全丢。
+- **救援关键**：reflog 悬空提交 `00a6aa0` 完整保留 L1+单位修复，先 `git branch recover-l1 00a6aa0` 钉住防 GC，再原样检出恢复；清理 25+4 个论文残留文件。已提交 commit 9742717 固化，工作区干净。
+- **坑**：MySQL alembic_version 已是 f6a7b8c9d0e1、4 字段已存在，重建迁移必须复用同 revision id，**绝不 stamp/upgrade/改 alembic_version**。QA 验证连 MySQL 时注意外层 app context 的 REPEATABLE READ 旧快照看不到嵌套 context 新插行，需独立 context 提交退出后再请求。/warehouse/doc_list 是 endpoint 名，真实 URL 是 /warehouse/docs。
+
 ## 验证命令
-- 全量：`DB_ENGINE=sqlite venv/Scripts/python.exe -m pytest tests -q`（274 passed）
+- 全量：`DB_ENGINE=sqlite venv/Scripts/python.exe -m pytest tests -q`（342 passed）
 - 冒烟：`venv/Scripts/python.exe scripts/smoke_test.py`（39 项，**须先删库重建再跑**，非幂等）
 
 ## 约定
