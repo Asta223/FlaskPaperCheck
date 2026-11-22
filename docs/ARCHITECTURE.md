@@ -1,7 +1,7 @@
-# 系统架构设计 + 任务分解：小型工厂管理系统（FlaskPaperCheck 改造）
+# 系统架构设计 + 任务分解：小型工厂管理系统
 
 > 架构师：高见远 ｜ 依据：`docs/PRD.md` v1.0 ｜ 状态：已完成
-> 代码基线：`E:\个人项目\FlaskPaperCheck`（已现场核验 app 工厂 / config / models / routes / templates / migrations 现状）
+> 代码基线：当前仓库（已现场核验 app 工厂 / config / models / routes / templates / migrations 现状）
 
 ---
 
@@ -13,19 +13,19 @@
 
 | 挑战 | 对策 |
 |---|---|
-| 查重业务拆除干净（torch/gensim 等重依赖、4 个废弃模型、paper/history 蓝图、6 个迁移头） | T01 全量物理删除 + 依赖清零；迁移**重建而非叠加**（见 1.4） |
+| 依赖与迁移链保持轻量、单一 | 仅保留业务必需依赖；迁移收敛为单一线性链（见 1.4） |
 | 简单 RBAC：两级权限点 + 装饰器 + 菜单按权限渲染 | 权限点注册表（常量字典）+ `@permission_required` 装饰器 + Jinja context processor 注入过滤后的菜单（见 1.3-①） |
 | 部门树（上下级 + 负责人）与 User 形成循环外键 | 邻接表（parent_id 自引用）+ `ForeignKey('users.id', use_alter=True)` 解循环；树在 Python 层内存组装（规模小，无需 CTE） |
 | 库存随出入库单据自动增减，防超卖/并发错账 | 单据提交与库存更新放**同一事务**，出库前 `with_for_update()` 行锁校验余量（见 1.3-②） |
 | 聊天实时性（不引入 WebSocket） | 服务端渲染 + AJAX 轮询：13s 间隔拉取未读消息数 + 最新消息（见 1.3-③） |
 | 考勤统计（出勤/缺卡天数） | 打卡记录按 (user_id, date) 唯一约束，月度统计用日期区间查询 + Python 聚合（几百人规模无需 SQL 复杂聚合） |
 
-### 1.2 框架选型确认（保持现有栈，零新增依赖）
+### 1.2 框架选型确认
 
-- **保留**：Flask 2.2+ 应用工厂、Flask-SQLAlchemy 3.0.5、Flask-Login、Flask-WTF、Flask-Migrate(alembic)、PyMySQL、email-validator、Bootstrap5 CDN + Jinja2。
-- **移除**：torch / gensim / sentence-transformers / scikit-learn / numpy / jieba / PyPDF2 / python-docx / beautifulsoup4 / requests / pdfkit / reportlab。
-- **新增**：无。9 大模块全部可用现有栈实现（上传复用 werkzeug，轮询用原生 fetch，图表看板用 Bootstrap 卡片分列即可，P2 才考虑 ECharts）。
-- **架构模式**：经典 Flask 分层单体 —— Route(蓝图/Controller) → Form(Flask-WTF 校验) → Model(SQLAlchemy) + Service(业务事务逻辑，仅库存/统计抽 service) + Utils(权限/菜单/时间过滤器)。
+- **核心栈**：Flask 2.2+ 应用工厂、Flask-SQLAlchemy 3.0.5、Flask-Login、Flask-WTF、Flask-Migrate(Alembic)、PyMySQL、email-validator、Bootstrap5 CDN + Jinja2。
+- **预览依赖**：python-docx / openpyxl / xlrd 用于 Word/Excel 内容级预览；xlwt 仅用于测试生成 `.xls` 样本。
+- **前端**：不引入前后端分离或重量级图表库；聊天轮询用原生 fetch，看板统计图用原生 HTML/CSS 绘制。
+- **架构模式**：经典 Flask 分层单体 —— Route(蓝图/Controller) → Form(Flask-WTF 校验) → Model(SQLAlchemy) + Service(业务事务逻辑) + Utils(权限/菜单/时间过滤器)。
 
 ### 1.3 关键设计决策
 
@@ -72,14 +72,14 @@
 - **文件可见范围**：`FactoryFile.visibility_type ∈ {all, roles}` + 关联表 `file_role_visibility(file_id, role_id)`；下载前校验 `visibility_type=='all' or 角色交集非空`；目录存储沿用 `UPLOAD_FOLDER`，磁盘文件名用 uuid 防冲突，原文件名存库。
 - **工单状态机**：工单 `pending→in_progress→completed→accepted`；工序 `pending→in_progress→completed`。流转仅在详情页"下一步"按钮 + 后端校验合法迁移，不做任意跳转。
 
-### 1.4 迁移重建策略（重点）
+### 1.4 迁移链策略（重点）
 
-**决策：删除旧迁移历史，全新初始化，而非在旧 head 上叠加。**
+**决策：使用单一线性迁移链，从初始化迁移开始，按增量依次叠加。**
 
 理由：
-1. 旧 head 有 6 个版本、且业务模型（Paper/CheckRecord 等 4 表）全废弃——叠加式迁移会产生"先建后删"的垃圾历史；
-2. User 表结构大改（加 employee_no/department_id/多角色等），旧 email 唯一非空约束与现状冲突，diff 迁移极易出错；
-3. PRD 明确旧查重数据全部废弃，无存量数据包袱，重建零成本。
+1. 业务模型按工厂管理重新定义，避免出现与业务无关的"先建后删"历史结构；
+2. User 表包含 employee_no/department_id/多角色等工厂字段，初始化口径统一；
+3. 当前库以工厂业务数据为准，无需保留无关历史数据结构。
 
 操作步骤（T02 执行）：
 ```
@@ -95,15 +95,14 @@
 
 ## 2. 文件列表及相对路径
 
-图例：`[新]` 新建　`[改]` 改造现有　`[删]` 删除
+图例：`[新]` 新建　`[改]` 调整现有　`[删]` 删除
 
 ### 2.1 根目录与配置
 ```
-[改] requirements.txt                 # 精简为 7 个依赖
-[改] config.py                        # 移除 DOC2VEC_MODEL_PATH/ALLOWED_EXTENSIONS 旧值；新增 TIMEZONE='Asia/Shanghai'、MAX_CONTENT_LENGTH=50MB、UPLOAD 扩展白名单
-[改] run.py                           # 不变（视核验结果微调）
+[改] requirements.txt                 # 业务必需依赖 + 文件预览依赖，详见文件
+[改] config.py                        # 环境变量驱动 DB_* / DATABASE_URL；TIMEZONE='Asia/Shanghai'、MAX_CONTENT_LENGTH、UPLOAD 扩展白名单
+[改] run.py                           # 应用启动入口
 [新] scripts/seed.py                  # 种子数据：权限点/内置角色/超管/示例部门/示例物料仓库
-[删] app.py.bak、verify_p1_tmp.py、setup.sql、models/（doc2vec 模型目录）、paper_check_test.db
 ```
 
 ### 2.2 app 应用主体
@@ -134,7 +133,6 @@
 [新] app/routes/files.py              # 分类、上传、列表、下载
 [新] app/routes/chat.py               # 会话页、发送、JSON API（unread/messages/read）
 
-[删] app/utils/similarity.py、text_preprocess.py、file_parser.py、report.py、stopwords.txt
 [新] app/utils/permissions.py         # PERMISSION_REGISTRY、@permission_required、权限查询与缓存
 [新] app/utils/menu.py                # MENU_REGISTRY + 菜单过滤
 [新] app/utils/time_utils.py          # now()（本地时区）、Jinja 过滤器 fmt_dt
@@ -144,10 +142,10 @@
 [新] app/services/chat_service.py      # 会话列表/未读聚合
 [删] app/forms.py（旧）→ [新] app/forms/auth.py、hr.py、rbac.py、attendance.py、production.py、material.py、warehouse.py、files.py、chat.py
 
-[删] app/uploads/（旧查重上传目录，改为 data/uploads 由 config 统一）
+[删] app/uploads/（上传文件统一存放 data/uploads，路径由 config 配置）
 ```
 
-### 2.3 模板（app/templates/，全部继承改造后的 base.html）
+### 2.3 模板（app/templates/，全部继承 base.html）
 ```
 [改] base.html            # 顶部栏（系统名/消息角标/用户菜单）+ 左侧权限导航 + 内容区
 [改] login.html           # 品牌区改"工厂管理系统"；[删] register.html
@@ -507,9 +505,9 @@ email-validator==2.1.0
 
 | ID | 任务名 | 涉及文件 | 依赖 | 验收标准 | 优先级 |
 |---|---|---|---|---|---|
-| **T01** | 基础重构与依赖清理 | requirements.txt、config.py、app/__init__.py（临时只留 auth/main）、删 routes/paper.py+history.py、删 utils 4 文件+stopwords.txt、删 app/models.py 旧表定义之外部分、删 register.html 等废弃模板、删根目录垃圾文件 | 无 | ① `pip install -r requirements.txt` 在干净 venv 成功且无 torch/gensim；② `flask run` 启动正常，登录页可打开；③ 全库 grep `paper|similarity|doc2vec|gensim|torch` 无业务残留（docs 除外） | P0 |
-| **T02** | 数据模型重建与迁移 | app/models/ 包 10 个文件、migrations/versions 清空重建、config.py 时区项、scripts/seed.py（权限点+内置角色+超管） | T01 | ① `flask db migrate && flask db upgrade` 一次成功生成全部 15 张表；② `python scripts/seed.py` 写入权限点/角色/超管；③ 模型间外键/唯一约束与设计一致（User↔Department 循环外键 use_alter 生效） | P0 |
-| **T03** | RBAC 权限体系 + 页面框架 | app/utils/permissions.py、menu.py、time_utils.py、routes/rbac.py、forms/rbac.py、templates/base.html（侧边栏+顶部栏+角标占位）、rbac/*.html、errors/403.html、errors/404.html、auth.py 改造（去注册+改密） | T02 | ① 角色矩阵页可勾选权限并保存；② 无权限访问返回 403 页；③ 超管全菜单可见，普通角色菜单按权限过滤；④ login_required 未登录跳登录 | P0 |
+| **T01** | 基础工程与依赖整理 | requirements.txt、config.py、app/__init__.py、统一应用工厂与蓝图注册、清理无用模板与临时文件 | 无 | ① 干净 venv 下 `pip install -r requirements.txt` 成功；② `flask run` 启动正常，登录页可打开；③ 依赖清单仅保留业务必需项 | P0 |
+| **T02** | 数据模型与迁移链 | app/models/ 包、migrations/versions 单一线性迁移、config.py 时区项、scripts/seed.py（权限点+内置角色+超管） | T01 | ① `flask db upgrade` 一次成功创建全部业务表；② `python scripts/seed.py` 写入权限点/角色/超管；③ 模型间外键/唯一约束与设计一致（User↔Department 循环外键 use_alter 生效） | P0 |
+| **T03** | RBAC 权限体系 + 页面框架 | app/utils/permissions.py、menu.py、time_utils.py、routes/rbac.py、forms/rbac.py、templates/base.html（侧边栏+顶部栏+角标占位）、rbac/*.html、errors/403.html、errors/404.html、auth.py（无自助注册、首登改密） | T02 | ① 角色矩阵页可勾选权限并保存；② 无权限访问返回 403 页；③ 超管全菜单可见，普通角色菜单按权限过滤；④ login_required 未登录跳登录 | P0 |
 | **T04** | 人员与部门管理 | routes/hr.py、forms/hr.py、templates/hr/*.html（员工列表含部门树筛选、员工表单含角色多选、部门树管理页） | T03 | ① 员工 CRUD + 离职停用（停用后无法登录、数据保留）；② 部门树增删改、指定负责人、员工归属部门；③ 工号/用户名唯一校验 | P0 |
 | **T05** | 考勤管理 | routes/attendance.py、forms/attendance.py、services/attendance_service.py、templates/attendance/*.html | T03（依赖 users 种子，联调需 T04） | ① 每日签到/签退各一次（重复点击幂等）；② 个人记录可查；③ 月度统计正确（出勤/缺卡天数，排除离职期间） | P0 |
 | **T06** | 物料与仓库管理 | routes/material.py、routes/warehouse.py、forms/ 两个、services/inventory_service.py、templates/material/*.html、warehouse/*.html | T03 | ① 物料分类/档案 CRUD、编码唯一；② 出入库单据提交后库存同事务增减（并发下无负库存）；③ 库存列表低于阈值红色标注；④ 出库余量不足被拒绝并整体回滚 | P0 |

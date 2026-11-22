@@ -6,7 +6,7 @@
 | 日期 | 2026-11-18 |
 | 作者 | PM（Alice） |
 | 状态 | 待评审（架构/工程可直接据此实现，口径已给默认值） |
-| 项目 | FlaskPaperCheck（Flask 单体 + Jinja2 + Bootstrap5 + MySQL，服务端渲染） |
+| 项目 | 工厂管理系统（Flask 单体 + Jinja2 + Bootstrap5 + MySQL，服务端渲染） |
 | 关联文档 | `docs/PRD-P2.md`（上游生产侧能力）、`docs/ARCHITECTURE-P1.md` |
 
 ## 一、背景与范围
