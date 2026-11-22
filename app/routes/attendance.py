@@ -201,6 +201,7 @@ def _selectable_users():
 @permission_required('system.export')
 def export_csv():
     """导出考勤汇总 CSV（P1-16）：复用数据权限收窄 + 当前年月/部门筛选。"""
+    from app.services.csv_specs import ATTENDANCE_HEADERS
     from app.services.export_service import guard_export_or_redirect, export_csv as _export_csv
 
     year = request.args.get('year', today().year, type=int)
@@ -238,8 +239,7 @@ def export_csv():
                   summary='导出考勤 %d-%02d 部门%s，共%d行' % (
                       year, month, dept_id or '全部', len(rows)))
     db.session.commit()
-    return _export_csv(['部门', '姓名', '日期', '签到', '签退', '状态', '迟到分钟', '早退分钟'],
-                       rows, 'attendance_%d%02d' % (year, month))
+    return _export_csv(ATTENDANCE_HEADERS, rows, 'attendance_%d%02d' % (year, month))
 
 
 @bp.route('/leave/new', methods=['GET', 'POST'])

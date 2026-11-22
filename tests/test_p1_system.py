@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""P1 系统通用测试：7 权限点注册、角色矩阵、操作日志只读筛选、CSV 导出（BOM/白名单/上限/留痕）。"""
+"""P1 系统通用测试：权限点注册、角色矩阵、操作日志只读筛选、CSV 导出（BOM/白名单/上限/留痕）。"""
 from conftest import get_csrf, login
 
 from app import db
@@ -12,13 +12,14 @@ from app.utils import menu
 NEW_PERMS = [
     'attendance.leave.apply', 'attendance.leave.approve', 'attendance.summary.view',
     'production.issue', 'warehouse.ledger.view', 'system.log.view', 'system.export',
+    'system.import',
 ]
 
 
 # ---------------- P1 权限点 + 菜单 ----------------
 
 def test_new_permissions_registered(client):
-    """7 个新权限点在注册表唯一声明。"""
+    """新增权限点在注册表唯一声明。"""
     for code in NEW_PERMS:
         assert code in ALL_PERMISSION_CODES
     found = [c for perms in PERMISSION_REGISTRY.values() for c in perms]

@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% from "_macros.html" import page_header %}
+{% block title %}{{ title }} - 工厂管理系统{% endblock %}
+{% block content %}
+{% call page_header(title) %}
+    <a class="btn btn-outline-secondary" href="{{ back_url }}"><i class="bi bi-arrow-left"></i> 返回列表</a>
+{% endcall %}
+
+{% if errors %}
+    <div class="alert alert-danger">
+        <div class="fw-bold mb-1">导入失败，共 {{ errors|length }} 处问题：</div>
+        <ul class="mb-0">
+            {% for error in errors %}<li>{{ error }}</li>{% endfor %}
+        </ul>
+    </div>
+{% endif %}
+
+<div class="row g-3">
+    <div class="col-lg-7">
+        <div class="card shadow-sm">
+            <div class="card-header bg-white"><i class="bi bi-upload"></i> 上传文件</div>
+            <div class="card-body">
+                <form method="post" enctype="multipart/form-data" action="{{ action_url }}">
+                    {{ form.hidden_tag() }}
+                    <div class="mb-3">
+                        {{ form.file.label(class='form-label') }}
+                        {{ form.file(class='form-control') }}
+                        {% for error in form.file.errors %}
+                            <div class="text-danger small">{{ error }}</div>
+                        {% endfor %}
+                        <div class="form-text">支持 .csv、.xlsx、.xls；列顺序可与模板不同，但必须包含全部必需列。</div>
+                    </div>
+                    {{ form.submit(class='btn btn-primary') }}
+                </form>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-5">
+        <div class="card shadow-sm h-100">
+            <div class="card-header bg-white"><i class="bi bi-table"></i> 字段模板（与导出一致）</div>
+            <div class="card-body">
+                <p class="small text-muted mb-2">下载导出的 CSV 作为模板，修改数据后直接上传即可。</p>
+                <ol class="mb-3">
+                    {% for header in headers %}<li>{{ header }}</li>{% endfor %}
+                </ol>
+                <a class="btn btn-sm btn-outline-secondary" href="{{ template_url }}">
+                    <i class="bi bi-download"></i> 下载模板（导出 CSV）
+                </a>
+                <hr>
+                <p class="small mb-0">{{ rules }}</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

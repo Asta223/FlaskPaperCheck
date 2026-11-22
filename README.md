@@ -7,6 +7,24 @@ P2 增量已交付：工序档案独立维护（工单只能下拉引用）、�
 
 后续增量：L1 轻量排产（交期倒排与超期/开工预警）、工艺路线、产品档案与 BOM、客户/供应商独立档案、单位档案与换算（拆箱领用）、菜单搜索、操作日志中文化及前端查询文案统一。详见 `docs/PRD-L1-Scheduling.md`、`docs/ARCHITECTURE-L1-Scheduling.md` 与提交记录。
 
+## 数据导入（CSV / Excel）
+
+原来支持 CSV 导出的 3 个页面现在都支持导入：**人员管理**、**月度考勤**、**库存查询**。导入模板直接复用各自导出文件的字段（字段顺序可不同，必须包含全部列，多余列忽略），可从导入页面一键下载导出 CSV 作为模板。
+
+| 页面 | 导入唯一键 | 处理口径 |
+|---|---|---|
+| 人员管理 | 工号 | 已存在更新，不存在新建；新建账号登录名=工号，初始密码取 `IMPORT_DEFAULT_PASSWORD`（默认 `123456`） |
+| 月度考勤 | 部门 + 姓名 + 日期 | 已存在更新，不存在新建；按文件值落库，不重算迟到/早退 |
+| 库存查询 | 仓库 + 物料编码 | 已存在更新，不存在新建；规格/存放位置同步回物料档案；状态须与数量/阈值一致；导入为库存快照覆盖，不生成出入库单据 |
+
+支持 `.csv`（UTF-8/UTF-8 BOM/GBK）、`.xlsx`、`.xls`。导入先全量校验再单事务写库，任一行失败则整份文件不落库，页面一次性列出所有错误行。需要同时具备对应模块管理权限和 `system.import`（数据导入）权限；部门主管仍受部门数据权限限制。
+
+**部署影响说明**：
+
+- **依赖无新增**：Excel 导入所需的 `openpyxl`（读 `.xlsx`）、`xlrd`（读 `.xls`）已在 `requirements.txt`（P2 文件预览阶段引入），部署脚本安装依赖时一并装好，无需额外操作。
+- **无新数据库迁移**：导入不新增表或字段，Alembic head 仍为 `e0f1a2b3c4d5`。新增的 `system.import` 权限点由 `scripts/seed.py` 幂等写入 `permissions` 表并绑定到内置角色；部署脚本（Windows `deploy_env.bat` / Linux `deploy.sh`）第 6 步已执行 `seed.py`，全新部署和已上线环境重新执行 seed 后均会自动获得该权限，无需手工改库。
+- **可选配置**：新建账号初始密码可通过 `.env` 的 `IMPORT_DEFAULT_PASSWORD` 覆盖（默认 `123456`），未配置时不改变默认行为。
+
 ## 技术栈
 
 - Flask 2.2+ 应用工厂 + Flask-SQLAlchemy + Flask-Login + Flask-WTF + Flask-Migrate
@@ -170,7 +188,7 @@ venv\Scripts\python.exe -m pip install --upgrade pip setuptools wheel
 venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-`requirements.txt` 已包含 Flask、Flask-SQLAlchemy、Flask-Login、Flask-WTF、Flask-Migrate、PyMySQL、邮件校验、Word/Excel 预览依赖。其中 `xlwt` 仅用于测试生成 `.xls` 样本。
+`requirements.txt` 已包含 Flask、Flask-SQLAlchemy、Flask-Login、Flask-WTF、Flask-Migrate、PyMySQL、邮件校验，以及 `openpyxl` / `xlrd`（Word/Excel 在线预览与 CSV/Excel 数据导入共用）、`python-docx`（Word 预览）。其中 `xlwt` 仅用于测试生成 `.xls` 样本，不作为运行依赖。
 
 可选依赖（不是启动必需）：
 
@@ -289,7 +307,7 @@ python run.py
 ## 测试
 
 ```bash
-# 全量 pytest（当前 399 项，约 1 分钟；未安装 pytest 时先执行 python -m pip install pytest）
+# 全量 pytest（当前 406 项，约 1 分钟；未安装 pytest 时先执行 python -m pip install pytest）
 venv\Scripts\python.exe -m pytest tests -q
 
 # 端到端冒烟（39 项）：脚本按"单次/新库"设计，运行前须从零建库，
@@ -321,8 +339,8 @@ app/
   __init__.py        # 应用工厂：蓝图注册、上下文注入、错误页
   models/            # SQLAlchemy 模型（含 user/rbac/org/attendance/production/material/warehouse/partner/unit/file/chat/system 等）
   forms/             # Flask-WTF 表单
-  routes/            # 蓝图（auth/main/hr/rbac/attendance/production/material/warehouse/files/chat/system）
-  services/          # 业务事务（库存/考勤/聊天/日志/通知/导出）
+  routes/            # 蓝图（auth/main/hr/rbac/attendance/production/material/warehouse/files/chat/system/data_import）
+  services/          # 业务事务（库存/考勤/聊天/日志/通知/导出/CSV-Excel 导入）
   utils/             # 权限与菜单注册表/时间工具/数据权限范围
   templates/         # Jinja2 模板（全部继承 base.html）
 部署命令.txt        # 手工部署命令清单（Windows + Linux 两套，按顺序复制执行）
@@ -336,6 +354,6 @@ start_server.py     # Waitress 服务入口（端口等参数见 .env）
 scripts/ensure_database.py  # 按 .env 确保数据库存在（SQLite 跳过）
 scripts/seed.py      # 种子数据（幂等）
 migrations/          # 单一线性 Alembic 迁移链，head=e0f1a2b3c4d5
-tests/               # pytest 套件（当前 399 项）
+tests/               # pytest 套件（当前 406 项）
 docs/                # PRD / 架构设计 / 类图与时序图
 ```

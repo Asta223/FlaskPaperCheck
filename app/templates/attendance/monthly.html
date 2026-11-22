@@ -43,6 +43,11 @@
                     <a class="btn btn-outline-secondary" href="{{ url_for('attendance.export_csv', year=year, month=month, dept_id=dept_id or 0) }}"><i class="bi bi-download"></i> 导出 CSV</a>
                 </div>
             {% endif %}
+            {% if 'attendance.view_all' in current_user|perm_codes and 'system.import' in current_user|perm_codes %}
+                <div class="col-auto">
+                    <a class="btn btn-outline-primary" href="{{ url_for('data_import.attendance') }}"><i class="bi bi-upload"></i> 导入 CSV/Excel</a>
+                </div>
+            {% endif %}
         </form>
     </div>
 </div>

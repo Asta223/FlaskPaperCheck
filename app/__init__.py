@@ -27,8 +27,8 @@ def create_app(config_class=Config):
     login_manager.login_message = '请先登录'
 
     # 注册全部业务蓝图
-    from app.routes import attendance, auth, chat, files, hr, main, material, production, rbac, \
-        system, warehouse
+    from app.routes import attendance, auth, chat, data_import, files, hr, main, material, \
+        production, rbac, system, warehouse
     app.register_blueprint(auth.bp)
     app.register_blueprint(main.bp)
     app.register_blueprint(hr.bp)
@@ -40,6 +40,7 @@ def create_app(config_class=Config):
     app.register_blueprint(files.bp)
     app.register_blueprint(chat.bp)
     app.register_blueprint(system.bp)
+    app.register_blueprint(data_import.bp)
 
     # 加载模型包（迁移自动发现 + user_loader 绑定）
     from app import models  # noqa: F401

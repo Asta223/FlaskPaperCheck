@@ -61,6 +61,7 @@ def employee_list():
 @permission_required('system.export')
 def employee_export_csv():
     """导出当前筛选员工 CSV（P1-16）：复用 base_employee_query + 数据权限，无密码哈希。"""
+    from app.services.csv_specs import EMPLOYEE_HEADERS
     from app.services.export_service import export_csv as _export_csv, guard_export_or_redirect
     from app.services.log_service import log_operation
 
@@ -93,8 +94,7 @@ def employee_export_csv():
     log_operation(module='hr', action='export', target_type='employee',
                   summary='导出员工 dept=%s kw=%s，共%d行' % (dept_id or '全部', keyword, len(rows)))
     db.session.commit()
-    return _export_csv(['工号', '姓名', '部门', '岗位', '手机', '邮箱', '状态'],
-                       rows, 'employees')
+    return _export_csv(EMPLOYEE_HEADERS, rows, 'employees')
 
 
 def _validate_unique(form, user=None) -> bool:

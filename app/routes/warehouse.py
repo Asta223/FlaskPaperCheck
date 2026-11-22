@@ -616,6 +616,7 @@ def ledger():
 @permission_required('system.export')
 def export_inventory_csv():
     """导出当前筛选库存（沿用 inventory 的筛选条件）。"""
+    from app.services.csv_specs import INVENTORY_HEADERS
     from app.services.export_service import export_csv as _export_csv, guard_export_or_redirect
 
     warehouse_id = request.args.get('warehouse_id', type=int)
@@ -654,8 +655,7 @@ def export_inventory_csv():
     log_operation(module='warehouse', action='export', target_type='inventory',
                   summary='导出库存 wh=%s kw=%s，共%d行' % (warehouse_id or '全部', keyword, len(rows)))
     db.session.commit()
-    return _export_csv(['仓库', '物料', '编码', '规格', '存放位置', '数量', '阈值', '状态'],
-                       rows, 'inventory')
+    return _export_csv(INVENTORY_HEADERS, rows, 'inventory')
 
 
 # ---------------- 预警消息已读（P1-09）----------------

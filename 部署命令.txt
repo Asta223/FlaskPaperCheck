@@ -37,6 +37,10 @@ venv\Scripts\python.exe -m flask db current
 【6】写入种子数据（幂等，可重复执行；包含权限点、角色、管理员账号）
 venv\Scripts\python.exe scripts\seed.py
 
+    说明：CSV/Excel 导入所需的 system.import 权限点也由本步骤写入并绑定内置角色，
+          已上线的环境重新执行本步即可获得该权限，无需手工改库或新增迁移。
+          导入功能不新增数据库表/字段，迁移 head 仍为 e0f1a2b3c4d5。
+
 
 ------------------------------------------------------------
 二、验证部署结果（可选）
@@ -74,6 +78,8 @@ DB_PORT=3306
 DB_USER=root
 DB_PASSWORD=123
 DB_NAME=FactoryManagementSystem
+
+IMPORT_DEFAULT_PASSWORD=123456   # 导入员工时新建账号的初始密码（可选，默认 123456）
 
 
 ------------------------------------------------------------

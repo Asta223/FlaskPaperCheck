@@ -159,8 +159,11 @@ class Config:
     PREVIEW_MAX_SHEETS = 20
     PREVIEW_DOCX_MAX_BLOCKS = 300
 
-    # P1-16 CSV 单次导出行数上限（默认假设 A1）
+    # P1-16 CSV 单次导出行数上限（默认假设 A1）；导入复用同一上限
     MAX_EXPORT_ROWS = 10000
+
+    # CSV/Excel 导入时新建员工的初始密码（导入字段以导出文件为准，不含密码列）
+    IMPORT_DEFAULT_PASSWORD = os.environ.get('IMPORT_DEFAULT_PASSWORD', '123456')
 
     # L1 轻量排产：单班组/单线粗略日产能（小时/工作日），支持环境变量覆盖
     DAILY_CAPACITY_HOURS = float(os.environ.get('DAILY_CAPACITY_HOURS', '8'))
